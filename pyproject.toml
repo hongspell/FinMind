@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "financeai-pro"
+name = "finmind"
 version = "0.1.0"
 description = "模块化金融AI分析平台"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
 authors = [
-    {name = "FinanceAI Team"}
+    {name = "FinMind Team"}
 ]
 keywords = ["finance", "ai", "analysis", "investment", "valuation"]
 classifiers = [
@@ -61,9 +61,9 @@ docs = [
 finai = "src.main:main"
 
 [project.urls]
-"Homepage" = "https://github.com/yourorg/finance-ai-platform"
-"Bug Tracker" = "https://github.com/yourorg/finance-ai-platform/issues"
-"Documentation" = "https://finance-ai-platform.readthedocs.io"
+"Homepage" = "https://github.com/hongspell/FinMind"
+"Bug Tracker" = "https://github.com/hongspell/FinMind/issues"
+"Documentation" = "https://github.com/hongspell/FinMind#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]

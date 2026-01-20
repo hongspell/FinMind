@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - pytest配置和共享fixtures
+FinMind - pytest配置和共享fixtures
 """
 
 import pytest

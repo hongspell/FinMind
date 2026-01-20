@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - API模块
+FinMind - API模块
 
 FastAPI REST API服务，提供：
 - /api/v1/analyze: 创建分析任务

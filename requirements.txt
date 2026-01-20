@@ -1,5 +1,5 @@
 # ============================================
-# FinanceAI Platform - Python Dependencies
+# FinMind - Python Dependencies
 # ============================================
 
 # === Web Framework ===

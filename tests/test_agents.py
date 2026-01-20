@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - 单元测试
+FinMind - 单元测试
 
 运行测试:
     pytest tests/ -v

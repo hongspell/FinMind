@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - Data Providers & Chain Executor
+FinMind - Data Providers & Chain Executor
 数据提供者和分析链执行器实现
 """
 from abc import ABC, abstractmethod
@@ -778,7 +778,7 @@ class SimpleDataCollector:
 
 class FinanceAI:
     """
-    FinanceAI Pro 主入口
+    FinMind 主入口
     
     使用示例:
     ```python
@@ -980,7 +980,7 @@ class AnalysisResult:
 
 if __name__ == "__main__":
     async def main():
-        print("FinanceAI Pro - Example Usage")
+        print("FinMind - Example Usage")
         print("=" * 50)
         
         # 实际使用示例（需要配置文件和 API keys）

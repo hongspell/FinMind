@@ -1,5 +1,5 @@
 -- ============================================
--- FinanceAI Platform - Database Schema
+-- FinMind - Database Schema
 -- TimescaleDB + PostgreSQL
 -- ============================================
 

@@ -1,5 +1,5 @@
 # ============================================
-# FinanceAI Platform - Production Dockerfile
+# FinMind - Production Dockerfile
 # ============================================
 
 FROM python:3.11-slim as base

@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - Agent Base Classes
+FinMind - Agent Base Classes
 核心 Agent 框架实现
 """
 from abc import ABC, abstractmethod

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FinanceAI Pro - 命令行入口
+FinMind - 命令行入口
 
 使用示例:
     # 完整分析
@@ -35,7 +35,7 @@ def create_parser() -> argparse.ArgumentParser:
     """创建命令行解析器"""
     parser = argparse.ArgumentParser(
         prog="financeai",
-        description="FinanceAI Pro - 模块化金融AI分析平台",
+        description="FinMind - 模块化金融AI分析平台",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -50,7 +50,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version", 
         action="version", 
-        version="FinanceAI Pro v0.1.0"
+        version="FinMind v0.1.0"
     )
     
     parser.add_argument(
@@ -231,7 +231,7 @@ async def run_analyze(args) -> int:
         msg_failed = "Analysis failed"
 
     print(f"\n{'='*64}")
-    print(f"  FinanceAI Pro - {args.target}")
+    print(f"  FinMind - {args.target}")
     print(f"{'='*64}")
     print(f"  Chain: {args.chain}")
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -324,7 +324,7 @@ async def run_analyze(args) -> int:
 async def run_scan(args) -> int:
     """执行批量扫描"""
     print(f"\n{'='*60}")
-    print(f"  FinanceAI Pro - 批量扫描")
+    print(f"  FinMind - 批量扫描")
     print(f"{'='*60}")
     print(f"  目标: {', '.join(args.targets)}")
     print(f"  分析链: {args.chain}")
@@ -360,7 +360,7 @@ async def run_scan(args) -> int:
 async def run_valuation(args) -> int:
     """执行估值分析"""
     print(f"\n{'='*60}")
-    print(f"  FinanceAI Pro - 估值分析")
+    print(f"  FinMind - 估值分析")
     print(f"{'='*60}")
     print(f"  目标: {args.target}")
     print(f"  方法: {args.methods}")
@@ -401,7 +401,7 @@ async def run_valuation(args) -> int:
 async def run_earnings(args) -> int:
     """执行财报分析"""
     print(f"\n{'='*60}")
-    print(f"  FinanceAI Pro - 财报分析")
+    print(f"  FinMind - 财报分析")
     print(f"{'='*60}")
     print(f"  目标: {args.target}")
     print(f"  季度: {args.quarter or '最新季度'}")
@@ -414,7 +414,7 @@ async def run_earnings(args) -> int:
 def run_serve(args) -> int:
     """启动API服务"""
     print(f"\n{'='*60}")
-    print(f"  FinanceAI Pro - API服务")
+    print(f"  FinMind - API服务")
     print(f"{'='*60}")
     print(f"  地址: http://{args.host}:{args.port}")
     print(f"  文档: http://{args.host}:{args.port}/docs")

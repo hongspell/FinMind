@@ -1,3 +1,3 @@
 """
-FinanceAI Pro - 测试套件
+FinMind - 测试套件
 """

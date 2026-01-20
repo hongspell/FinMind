@@ -1,4 +1,4 @@
-# FinanceAI Pro
+# FinMind
 
 <div align="center">
 
@@ -18,9 +18,9 @@
 
 ## 🎯 项目愿景
 
-FinanceAI Pro 旨在解决传统金融AI工具的核心痛点：
+FinMind 旨在解决传统金融AI工具的核心痛点：
 
-| 问题 | 传统工具 | FinanceAI Pro |
+| 问题 | 传统工具 | FinMind |
 |------|----------|---------------|
 | 方法论 | 硬编码在Python中 | YAML配置，热更新 |
 | 数据源 | 固定3-4个API | 插件系统，无限扩展 |
@@ -94,8 +94,8 @@ registry.register(MyDataProvider())
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourorg/finance-ai-platform.git
-cd finance-ai-platform
+git clone https://github.com/hongspell/FinMind.git
+cd FinMind
 
 # 创建虚拟环境
 python -m venv venv
@@ -221,7 +221,7 @@ curl "http://localhost:8000/api/v1/quote/AAPL"
 ## 📁 项目结构
 
 ```
-finance-ai-platform/
+FinMind/
 ├── config/
 │   ├── agents/              # Agent行为配置
 │   │   ├── valuation_agent.yaml

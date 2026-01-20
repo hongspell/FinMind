@@ -1,11 +1,11 @@
-# FinanceAI Pro Makefile
+# FinMind Makefile
 # 简化常用开发命令
 
 .PHONY: help install dev test lint format clean docker-up docker-down serve
 
 # 默认目标
 help:
-	@echo "FinanceAI Pro - 可用命令:"
+	@echo "FinMind - 可用命令:"
 	@echo ""
 	@echo "  make install     - 安装依赖"
 	@echo "  make dev         - 安装开发依赖"

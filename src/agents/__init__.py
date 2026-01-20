@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - Agents模块
+FinMind - Agents模块
 
 包含所有专业分析Agent的实现：
 - ValuationAgent: 估值分析

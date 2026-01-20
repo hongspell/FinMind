@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - FastAPI REST API服务
+FinMind - FastAPI REST API服务
 
 提供RESTful API接口，支持：
 - 股票分析请求
@@ -210,14 +210,14 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     await task_store.connect_redis()
-    print("FinanceAI Pro API 启动完成")
+    print("FinMind API 启动完成")
     yield
     # 关闭时
-    print("FinanceAI Pro API 关闭")
+    print("FinMind API 关闭")
 
 
 app = FastAPI(
-    title="FinanceAI Pro API",
+    title="FinMind API",
     description="模块化金融AI分析平台 REST API",
     version="0.1.0",
     lifespan=lifespan,
@@ -263,7 +263,7 @@ async def health_check():
 async def root():
     """API根路径"""
     return {
-        "name": "FinanceAI Pro API",
+        "name": "FinMind API",
         "version": "0.1.0",
         "docs": "/docs",
         "health": "/health"

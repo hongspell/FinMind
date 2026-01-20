@@ -171,3 +171,5 @@ cache/
 # Temporary files
 tmp/
 temp/
+env.txt
+env.txt

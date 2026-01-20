@@ -1,6 +1,6 @@
-# Contributing to FinanceAI Pro
+# Contributing to FinMind
 
-Thank you for your interest in contributing to FinanceAI Pro! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to FinMind! This document provides guidelines and instructions for contributing.
 
 ## Table of Contents
 
@@ -35,13 +35,13 @@ By participating in this project, you agree to maintain a respectful and inclusi
 1. Fork the repository on GitHub
 2. Clone your fork locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/finance-ai-platform.git
-   cd finance-ai-platform
+   git clone https://github.com/YOUR_USERNAME/FinMind.git
+   cd FinMind
    ```
 
 3. Add the upstream repository:
    ```bash
-   git remote add upstream https://github.com/ORIGINAL_OWNER/finance-ai-platform.git
+   git remote add upstream https://github.com/hongspell/FinMind.git
    ```
 
 ## Development Setup
@@ -233,4 +233,4 @@ Look for issues labeled `good first issue` - these are suitable for newcomers.
 
 ---
 
-Thank you for contributing to FinanceAI Pro! Your efforts help make financial analysis more accessible to everyone.
+Thank you for contributing to FinMind! Your efforts help make financial analysis more accessible to everyone.

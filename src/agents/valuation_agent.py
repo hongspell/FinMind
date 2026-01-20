@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - Valuation Agent
+FinMind - Valuation Agent
 估值分析 Agent 完整实现
 """
 from typing import Any, Dict, List, Optional

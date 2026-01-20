@@ -1,5 +1,5 @@
 """
-FinanceAI Pro - LLM模块
+FinMind - LLM模块
 
 统一的LLM网关，支持多个模型提供商：
 - OpenAI (GPT-4o, GPT-4o-mini)
