@@ -1,0 +1,467 @@
+# DCF (Discounted Cash Flow) 估值方法论配置
+# 版本: 1.0.0
+# 
+# 本配置定义了DCF估值的完整计算框架，包括：
+# - 自由现金流预测方法
+# - 折现率计算（WACC/CAPM）
+# - 终值计算方法
+# - 敏感性分析参数
+# - 质量检查和警告规则
+
+version: "1.0.0"
+methodology_name: "dcf_valuation"
+methodology_type: "intrinsic_valuation"
+
+# =============================================================================
+# 方法论描述
+# =============================================================================
+description:
+  summary: "现金流折现模型 - 通过预测未来自由现金流并折现到现值来估算企业价值"
+  when_to_use:
+    - "公司有正向且可预测的自由现金流"
+    - "公司处于稳定期或增长可预测"
+    - "有足够的历史数据支持预测"
+    - "行业有可比公司用于校验"
+  when_not_to_use:
+    - "早期亏损公司（无正FCF）"
+    - "周期性极强的行业（预测困难）"
+    - "金融公司（现金流定义不同）"
+    - "大规模重组或并购中的公司"
+  
+# =============================================================================
+# 输入数据要求
+# =============================================================================
+input_requirements:
+  required_data:
+    - name: "revenue_history"
+      description: "历史收入数据"
+      min_years: 3
+      preferred_years: 5
+      
+    - name: "ebitda_history"
+      description: "历史EBITDA数据"
+      min_years: 3
+      preferred_years: 5
+      
+    - name: "capex_history"
+      description: "历史资本支出"
+      min_years: 3
+      preferred_years: 5
+      
+    - name: "working_capital_history"
+      description: "历史营运资本变动"
+      min_years: 3
+      preferred_years: 5
+      
+    - name: "debt_level"
+      description: "当前债务水平"
+      required: true
+      
+    - name: "cash_position"
+      description: "当前现金及等价物"
+      required: true
+      
+    - name: "shares_outstanding"
+      description: "流通股数"
+      required: true
+      
+  optional_data:
+    - name: "management_guidance"
+      description: "管理层业绩指引"
+      use_case: "短期预测校验"
+      
+    - name: "analyst_estimates"
+      description: "分析师一致预期"
+      use_case: "预测合理性检验"
+      
+    - name: "industry_growth_rates"
+      description: "行业增长率"
+      use_case: "长期增长假设锚定"
+
+# =============================================================================
+# 自由现金流计算
+# =============================================================================
+fcf_calculation:
+  primary_method: "fcff"  # Free Cash Flow to Firm
+  
+  fcff_formula:
+    description: "FCFF = EBIT(1-t) + D&A - CapEx - ΔNWC"
+    components:
+      - name: "ebit"
+        source: "income_statement"
+        
+      - name: "tax_rate"
+        source: "effective_tax_rate"
+        fallback: 0.21  # 美国联邦税率
+        
+      - name: "depreciation_amortization"
+        source: "cash_flow_statement"
+        
+      - name: "capex"
+        source: "cash_flow_statement"
+        sign: "negative"
+        
+      - name: "working_capital_change"
+        source: "calculated"
+        formula: "current_nwc - previous_nwc"
+        sign: "negative_if_increase"
+
+  alternative_method: "fcfe"  # Free Cash Flow to Equity
+  fcfe_formula:
+    description: "FCFE = FCFF - Interest(1-t) + Net Borrowing"
+    use_case: "当评估权益价值时"
+
+# =============================================================================
+# 预测框架
+# =============================================================================
+projection_framework:
+  projection_period:
+    default_years: 5
+    min_years: 3
+    max_years: 10
+    rationale: "5年足以捕捉中期趋势，同时保持预测合理性"
+  
+  growth_phases:
+    - phase: "high_growth"
+      years: "1-3"
+      description: "基于近期趋势和管理层指引"
+      methodology: "bottom_up_preferred"
+      
+    - phase: "transition"
+      years: "4-5"
+      description: "向终值增长率过渡"
+      methodology: "linear_fade"
+      
+    - phase: "terminal"
+      years: "6+"
+      description: "永续增长"
+      methodology: "gordon_growth"
+
+  revenue_projection_methods:
+    primary: "growth_rate_approach"
+    alternatives:
+      - "driver_based"
+      - "segment_build_up"
+      - "market_share_approach"
+    
+    growth_rate_constraints:
+      year_1_max: 0.50  # 50% 最大年增长
+      year_5_max: 0.25  # 25% 第五年最大
+      terminal_max: 0.04  # 4% 终值增长上限
+      terminal_floor: 0.0  # 0% 终值增长下限
+      
+  margin_projection:
+    method: "mean_reversion"
+    target: "industry_average_or_historical_peak"
+    reversion_period_years: 5
+    
+    constraints:
+      max_margin_improvement_per_year: 0.02  # 每年最多改善2%
+      margin_ceiling: "industry_leader_margin"
+
+# =============================================================================
+# 折现率计算 (WACC)
+# =============================================================================
+discount_rate:
+  method: "wacc"
+  
+  wacc_formula:
+    description: "WACC = E/(E+D) × Re + D/(E+D) × Rd × (1-t)"
+    
+  cost_of_equity:
+    method: "capm"
+    formula: "Re = Rf + β × (Rm - Rf)"
+    
+    components:
+      risk_free_rate:
+        source: "10_year_treasury"
+        fallback: 0.045
+        
+      equity_risk_premium:
+        source: "damodaran_erp"
+        fallback: 0.055
+        
+      beta:
+        source: "calculated_or_industry"
+        lookback_period: "2_years"
+        adjustment: "blume_adjustment"  # β_adj = 0.67 × β + 0.33 × 1
+        
+    additional_premiums:
+      size_premium:
+        apply_if: "market_cap < 2B"
+        small_cap: 0.03
+        micro_cap: 0.05
+        
+      country_risk_premium:
+        apply_if: "non_us_exposure > 0.3"
+        source: "damodaran_country_risk"
+        
+      company_specific_risk:
+        apply_if: "high_uncertainty"
+        range: [0.01, 0.05]
+        
+  cost_of_debt:
+    method: "yield_to_maturity"
+    fallback: "risk_free + credit_spread"
+    
+    credit_spread_by_rating:
+      AAA: 0.006
+      AA: 0.008
+      A: 0.010
+      BBB: 0.015
+      BB: 0.030
+      B: 0.050
+      CCC: 0.100
+      
+  capital_structure:
+    method: "target_capital_structure"
+    alternatives:
+      - "current_book"
+      - "current_market"
+      - "industry_average"
+      - "optimal_theoretical"
+      
+  wacc_sanity_checks:
+    min_wacc: 0.06
+    max_wacc: 0.20
+    warning_if_below: 0.07
+    warning_if_above: 0.15
+
+# =============================================================================
+# 终值计算
+# =============================================================================
+terminal_value:
+  primary_method: "gordon_growth"
+  
+  gordon_growth:
+    formula: "TV = FCF_n × (1 + g) / (WACC - g)"
+    
+    terminal_growth_rate:
+      default: 0.025
+      min: 0.0
+      max: 0.04
+      rationale: "不应超过长期GDP增长率"
+      
+    constraints:
+      must_be_less_than_wacc: true
+      minimum_spread: 0.02  # WACC - g >= 2%
+      
+  alternative_method: "exit_multiple"
+  exit_multiple:
+    multiples:
+      - "ev_ebitda"
+      - "ev_sales"
+      - "pe"
+    source: "comparable_companies_or_historical"
+    
+  terminal_value_checks:
+    max_tv_percent_of_total: 0.80
+    warning_threshold: 0.70
+    action_if_exceeded: "sensitivity_analysis_required"
+
+# =============================================================================
+# 企业价值到股权价值桥接
+# =============================================================================
+equity_bridge:
+  enterprise_value_to_equity:
+    additions:
+      - name: "cash_and_equivalents"
+        source: "balance_sheet"
+        
+      - name: "non_operating_assets"
+        source: "balance_sheet"
+        items: ["investments", "discontinued_operations"]
+        
+    deductions:
+      - name: "total_debt"
+        source: "balance_sheet"
+        items: ["short_term_debt", "long_term_debt", "capital_leases"]
+        
+      - name: "minority_interest"
+        source: "balance_sheet"
+        
+      - name: "preferred_stock"
+        source: "balance_sheet"
+        
+      - name: "pension_liability"
+        source: "balance_sheet"
+        if_underfunded: true
+        
+      - name: "contingent_liabilities"
+        source: "notes_to_financial_statements"
+        if_material: true
+
+  per_share_calculation:
+    shares: "diluted_shares_outstanding"
+    include_options: true
+    option_method: "treasury_stock_method"
+
+# =============================================================================
+# 敏感性分析
+# =============================================================================
+sensitivity_analysis:
+  required: true
+  
+  primary_variables:
+    - variable: "terminal_growth_rate"
+      range: [-0.01, 0.04]
+      step: 0.005
+      
+    - variable: "wacc"
+      range: [-0.02, 0.02]
+      base: "calculated"
+      step: 0.005
+      
+  secondary_variables:
+    - variable: "revenue_growth_year1"
+      range: [-0.10, 0.10]
+      base: "projected"
+      
+    - variable: "terminal_margin"
+      range: [-0.05, 0.05]
+      base: "projected"
+      
+  output_format:
+    type: "matrix"
+    show: "per_share_value"
+    highlight: "base_case"
+
+# =============================================================================
+# 情景分析
+# =============================================================================
+scenario_analysis:
+  scenarios:
+    - name: "bull_case"
+      probability: 0.25
+      adjustments:
+        revenue_growth: "+20%"
+        margin_improvement: "+100bps"
+        terminal_growth: "+50bps"
+        wacc: "-25bps"
+        
+    - name: "base_case"
+      probability: 0.50
+      adjustments: null
+      
+    - name: "bear_case"
+      probability: 0.25
+      adjustments:
+        revenue_growth: "-20%"
+        margin_improvement: "-100bps"
+        terminal_growth: "-50bps"
+        wacc: "+50bps"
+
+  expected_value:
+    method: "probability_weighted"
+    formula: "EV = Σ(Pi × Vi)"
+
+# =============================================================================
+# 质量检查和警告
+# =============================================================================
+quality_checks:
+  automatic_warnings:
+    - condition: "terminal_value_percent > 0.70"
+      warning: "终值占总价值比例过高（>70%），对终值假设敏感"
+      severity: "high"
+      
+    - condition: "revenue_cagr_5y > 0.25"
+      warning: "5年收入CAGR超过25%，增长假设可能过于激进"
+      severity: "medium"
+      
+    - condition: "terminal_growth > gdp_growth"
+      warning: "终值增长率超过GDP增长率，长期不可持续"
+      severity: "high"
+      
+    - condition: "margin_improvement > historical_peak"
+      warning: "预测利润率超过历史峰值，需额外论证"
+      severity: "medium"
+      
+    - condition: "wacc < 0.07"
+      warning: "WACC低于7%，检查资本成本假设"
+      severity: "medium"
+      
+    - condition: "negative_fcf_years > 2"
+      warning: "预测期内多年FCF为负，DCF适用性存疑"
+      severity: "high"
+
+  mandatory_disclosures:
+    - "所有关键假设及其来源"
+    - "与分析师一致预期的差异"
+    - "主要风险因素"
+    - "敏感性分析结果"
+    - "情景分析和概率分布"
+
+# =============================================================================
+# 输出格式
+# =============================================================================
+output_format:
+  valuation_summary:
+    - "Enterprise Value"
+    - "Equity Value"
+    - "Per Share Value (Low/Mid/High)"
+    - "Implied Upside/Downside"
+    
+  supporting_exhibits:
+    - "Revenue and FCF Projections Table"
+    - "WACC Calculation Detail"
+    - "Terminal Value Breakdown"
+    - "Sensitivity Matrix"
+    - "Scenario Comparison"
+    - "Football Field Chart"
+    
+  key_metrics:
+    - "Implied EV/EBITDA at Fair Value"
+    - "Implied P/E at Fair Value"
+    - "IRR at Current Price"
+    - "Terminal Value % of Total"
+
+# =============================================================================
+# 置信度因子
+# =============================================================================
+confidence_factors:
+  high_confidence_conditions:
+    - "5+ years of consistent FCF history"
+    - "Low revenue volatility (<15% std dev)"
+    - "Stable margins (variation <200bps)"
+    - "Management guidance available"
+    - "3+ analyst estimates for comparison"
+    
+  low_confidence_conditions:
+    - "Less than 3 years of FCF data"
+    - "High revenue volatility (>30% std dev)"
+    - "Recent business model change"
+    - "No analyst coverage"
+    - "Significant M&A activity"
+    
+  confidence_adjustment:
+    all_high: +0.15
+    any_low: -0.10
+    multiple_low: -0.20
+
+# =============================================================================
+# 与其他方法论的整合
+# =============================================================================
+integration:
+  cross_validation:
+    methods:
+      - "comparable_companies"
+      - "precedent_transactions"
+      - "historical_multiples"
+    
+    weight_in_synthesis: 0.40  # DCF在综合估值中的权重
+    
+    disagreement_handling:
+      if_dcf_higher_than_comps: "检查增长假设是否过于激进"
+      if_dcf_lower_than_comps: "检查折现率是否过高或预测过于保守"
+      tolerance: 0.20  # 20%以内差异可接受
+
+# =============================================================================
+# 版本历史
+# =============================================================================
+changelog:
+  - version: "1.0.0"
+    date: "2024-01-01"
+    changes:
+      - "初始版本"
+      - "完整的DCF框架定义"
+      - "敏感性和情景分析配置"

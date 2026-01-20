@@ -1,0 +1,431 @@
+# 财报深度分析链配置
+# 
+# 用途：深入分析公司财务状况和盈利质量
+# 预计耗时：3-5分钟
+# 适用场景：
+#   - 财报发布后的深度解读
+#   - 投资决策前的财务尽调
+#   - 定期财务健康检查
+
+version: "1.0.0"
+chain_name: "earnings_deep_dive"
+description: "财报深度分析链 - 全面评估公司财务质量和盈利可持续性"
+
+# =============================================================================
+# 元数据
+# =============================================================================
+metadata:
+  estimated_time: "180-300 seconds"
+  complexity: "high"
+  cost_tier: "standard"
+  use_cases:
+    - "季度财报分析"
+    - "年度财务审查"
+    - "投资尽职调查"
+    - "信用分析"
+  
+  prerequisites:
+    - "最新财务报表数据"
+    - "至少3年历史数据"
+    - "可比公司数据"
+
+# =============================================================================
+# 全局配置
+# =============================================================================
+global_config:
+  llm_preference: "balanced"
+  max_total_time: 300
+  parallel_execution: true
+  data_freshness_required: 7  # 数据不超过7天
+
+# =============================================================================
+# 分析阶段
+# =============================================================================
+stages:
+  # Stage 1: 财务数据获取
+  - name: "financial_data_collection"
+    description: "获取完整财务报表和历史数据"
+    execution: "parallel"
+    timeout: 30
+    
+    tasks:
+      - name: "fetch_income_statement"
+        type: "data_fetch"
+        provider: "sec"
+        params:
+          statement_type: "income_statement"
+          periods: "quarterly"
+          count: 12  # 3年季度数据
+          
+      - name: "fetch_balance_sheet"
+        type: "data_fetch"
+        provider: "sec"
+        params:
+          statement_type: "balance_sheet"
+          periods: "quarterly"
+          count: 12
+          
+      - name: "fetch_cash_flow"
+        type: "data_fetch"
+        provider: "sec"
+        params:
+          statement_type: "cash_flow"
+          periods: "quarterly"
+          count: 12
+          
+      - name: "fetch_segment_data"
+        type: "data_fetch"
+        provider: "sec"
+        params:
+          data_type: "segment_breakdown"
+          include_geography: true
+          
+      - name: "fetch_guidance"
+        type: "data_fetch"
+        provider: "earnings_call"
+        params:
+          data_type: "management_guidance"
+          include_transcript: true
+
+  # Stage 2: 收入质量分析
+  - name: "revenue_analysis"
+    description: "分析收入质量和可持续性"
+    execution: "parallel"
+    timeout: 60
+    depends_on: ["financial_data_collection"]
+    
+    tasks:
+      - name: "revenue_decomposition"
+        agent: "earnings"
+        params:
+          analysis_type: "revenue_quality"
+          components:
+            - organic_vs_acquisition: true
+            - recurring_vs_nonrecurring: true
+            - segment_breakdown: true
+            - geographic_mix: true
+            - customer_concentration: true
+          
+      - name: "growth_sustainability"
+        agent: "earnings"
+        params:
+          analysis_type: "growth_analysis"
+          metrics:
+            - revenue_cagr
+            - sequential_growth
+            - yoy_growth
+            - growth_vs_industry
+          drivers:
+            - volume_vs_price
+            - new_vs_existing_customers
+            - market_share_changes
+
+  # Stage 3: 盈利能力分析
+  - name: "profitability_analysis"
+    description: "分析利润率和盈利质量"
+    execution: "parallel"
+    timeout: 60
+    depends_on: ["financial_data_collection"]
+    
+    tasks:
+      - name: "margin_analysis"
+        agent: "earnings"
+        params:
+          analysis_type: "margin_analysis"
+          margins:
+            - gross_margin
+            - operating_margin
+            - ebitda_margin
+            - net_margin
+            - fcf_margin
+          analysis:
+            - trend_analysis
+            - vs_peers
+            - vs_historical
+            - decomposition
+          
+      - name: "cost_structure"
+        agent: "earnings"
+        params:
+          analysis_type: "cost_analysis"
+          components:
+            - cogs_breakdown
+            - opex_breakdown
+            - fixed_vs_variable
+            - operating_leverage
+          
+      - name: "earnings_quality"
+        agent: "earnings"
+        params:
+          analysis_type: "earnings_quality"
+          checks:
+            - accruals_ratio
+            - cash_earnings_ratio
+            - one_time_items
+            - accounting_changes
+            - revenue_recognition
+
+  # Stage 4: 现金流分析
+  - name: "cash_flow_analysis"
+    description: "分析现金流质量和资本配置"
+    execution: "parallel"
+    timeout: 60
+    depends_on: ["financial_data_collection"]
+    
+    tasks:
+      - name: "fcf_analysis"
+        agent: "earnings"
+        params:
+          analysis_type: "cash_flow_quality"
+          metrics:
+            - operating_cash_flow
+            - free_cash_flow
+            - fcf_conversion
+            - cash_vs_earnings
+          quality_checks:
+            - working_capital_trends
+            - capex_sustainability
+            - maintenance_vs_growth_capex
+          
+      - name: "capital_allocation"
+        agent: "earnings"
+        params:
+          analysis_type: "capital_allocation"
+          categories:
+            - reinvestment_rate
+            - dividend_policy
+            - share_buybacks
+            - ma_activity
+            - debt_management
+          assessment:
+            - roic_vs_wacc
+            - capital_efficiency
+            - shareholder_returns
+
+  # Stage 5: 资产负债表分析
+  - name: "balance_sheet_analysis"
+    description: "分析资产负债表健康度"
+    execution: "parallel"
+    timeout: 45
+    depends_on: ["financial_data_collection"]
+    
+    tasks:
+      - name: "leverage_analysis"
+        agent: "earnings"
+        params:
+          analysis_type: "leverage"
+          metrics:
+            - debt_to_equity
+            - debt_to_ebitda
+            - interest_coverage
+            - debt_maturity_profile
+          
+      - name: "liquidity_analysis"
+        agent: "earnings"
+        params:
+          analysis_type: "liquidity"
+          metrics:
+            - current_ratio
+            - quick_ratio
+            - cash_ratio
+            - working_capital
+          
+      - name: "asset_quality"
+        agent: "earnings"
+        params:
+          analysis_type: "asset_quality"
+          checks:
+            - goodwill_impairment_risk
+            - inventory_obsolescence
+            - receivables_aging
+            - intangible_assets
+
+  # Stage 6: 同业对比
+  - name: "peer_comparison"
+    description: "与同业进行财务对比"
+    execution: "sequential"
+    timeout: 45
+    depends_on: ["revenue_analysis", "profitability_analysis", "cash_flow_analysis"]
+    
+    tasks:
+      - name: "financial_benchmarking"
+        agent: "sector"
+        params:
+          analysis_type: "financial_comparison"
+          peer_count: 5
+          metrics:
+            - revenue_growth
+            - margins
+            - returns
+            - leverage
+            - valuation
+          output:
+            - percentile_rankings
+            - outperformance_areas
+            - underperformance_areas
+
+  # Stage 7: 财务预测验证
+  - name: "forecast_validation"
+    description: "验证分析师预期和管理层指引"
+    execution: "sequential"
+    timeout: 30
+    depends_on: ["peer_comparison"]
+    
+    tasks:
+      - name: "guidance_analysis"
+        agent: "earnings"
+        params:
+          analysis_type: "guidance_assessment"
+          checks:
+            - guidance_vs_consensus
+            - historical_guidance_accuracy
+            - guidance_revision_trend
+            - beat_miss_history
+
+  # Stage 8: 综合评估
+  - name: "synthesis"
+    description: "综合财务分析结论"
+    execution: "sequential"
+    timeout: 45
+    depends_on: ["forecast_validation"]
+    
+    tasks:
+      - name: "financial_health_score"
+        type: "scoring"
+        params:
+          model: "financial_health"
+          components:
+            profitability: 0.25
+            growth: 0.20
+            cash_flow: 0.20
+            balance_sheet: 0.20
+            earnings_quality: 0.15
+          
+      - name: "generate_report"
+        agent: "strategy"
+        params:
+          output_type: "earnings_report"
+          sections:
+            - executive_summary
+            - revenue_analysis
+            - profitability_analysis
+            - cash_flow_analysis
+            - balance_sheet_analysis
+            - peer_comparison
+            - outlook_and_risks
+            - investment_implications
+
+# =============================================================================
+# 输出配置
+# =============================================================================
+output:
+  format: "detailed"
+  
+  sections:
+    - name: "executive_summary"
+      content:
+        - financial_health_score
+        - key_strengths
+        - key_concerns
+        - earnings_quality_rating
+        
+    - name: "revenue_deep_dive"
+      content:
+        - revenue_breakdown
+        - growth_analysis
+        - sustainability_assessment
+        - segment_performance
+        
+    - name: "profitability_deep_dive"
+      content:
+        - margin_trends
+        - cost_structure
+        - operating_leverage
+        - earnings_quality_metrics
+        
+    - name: "cash_flow_deep_dive"
+      content:
+        - fcf_analysis
+        - working_capital_efficiency
+        - capital_allocation_assessment
+        - cash_conversion_cycle
+        
+    - name: "balance_sheet_deep_dive"
+      content:
+        - leverage_analysis
+        - liquidity_position
+        - asset_quality
+        - off_balance_sheet_items
+        
+    - name: "peer_benchmarking"
+      content:
+        - comparative_metrics
+        - percentile_rankings
+        - relative_strengths_weaknesses
+        
+    - name: "outlook"
+      content:
+        - guidance_assessment
+        - consensus_expectations
+        - key_assumptions
+        - scenario_analysis
+        
+    - name: "investment_implications"
+      content:
+        - valuation_impact
+        - risk_factors
+        - catalysts
+        - recommendation
+
+  visualizations:
+    - type: "trend_chart"
+      data: "margin_history"
+      
+    - type: "waterfall"
+      data: "revenue_bridge"
+      
+    - type: "comparison_table"
+      data: "peer_metrics"
+      
+    - type: "heatmap"
+      data: "quarterly_performance"
+
+# =============================================================================
+# 质量门槛
+# =============================================================================
+quality_gates:
+  data_completeness:
+    min: 0.8
+    action: "warn_and_proceed"
+    
+  historical_data:
+    min_quarters: 8
+    action: "reduce_analysis_scope"
+    
+  peer_data:
+    min_peers: 3
+    action: "expand_peer_set"
+
+# =============================================================================
+# 警告规则
+# =============================================================================
+warning_rules:
+  - condition: "earnings_quality_score < 0.5"
+    warning: "盈利质量存疑，需仔细审查会计政策"
+    severity: "high"
+    
+  - condition: "cash_earnings_divergence > 0.3"
+    warning: "现金流与利润显著背离，关注应计项目"
+    severity: "high"
+    
+  - condition: "debt_to_ebitda > 4"
+    warning: "杠杆水平较高，关注偿债能力"
+    severity: "medium"
+    
+  - condition: "revenue_concentration > 0.3"
+    warning: "收入集中度高，存在客户依赖风险"
+    severity: "medium"
+    
+  - condition: "goodwill_to_equity > 0.5"
+    warning: "商誉占比较高，存在减值风险"
+    severity: "medium"

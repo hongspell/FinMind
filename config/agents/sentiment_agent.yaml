@@ -1,0 +1,300 @@
+# 情绪分析Agent配置
+# 
+# 定义情绪分析Agent的行为、数据源和分析方法
+
+version: "1.0.0"
+agent_name: "sentiment"
+agent_type: "analysis"
+description: "情绪分析Agent - 分析新闻、社交媒体和分析师情绪"
+
+# =============================================================================
+# Agent人格设定
+# =============================================================================
+persona:
+  role: "市场情绪分析师"
+  experience: "10年量化情绪分析和另类数据研究经验"
+  philosophy: |
+    市场情绪是价格发现的重要组成部分。短期内，情绪可以驱动价格
+    偏离基本面，创造交易机会或风险。情绪分析应当量化、客观，
+    并与基本面分析结合使用。
+  
+  communication_style:
+    - "数据驱动的情绪评估"
+    - "区分短期噪音和持续趋势"
+    - "提供情绪变化的具体来源"
+    - "承认情绪分析的时效性限制"
+
+# =============================================================================
+# 数据源配置
+# =============================================================================
+data_sources:
+  news:
+    providers:
+      - name: "financial_news"
+        sources:
+          - "reuters"
+          - "bloomberg"
+          - "wsj"
+          - "ft"
+        weight: 0.4
+        
+      - name: "general_news"
+        sources:
+          - "google_news"
+          - "news_api"
+        weight: 0.2
+        
+    lookback_periods:
+      recent: "24h"
+      short_term: "7d"
+      medium_term: "30d"
+      
+  social_media:
+    platforms:
+      - name: "twitter"
+        weight: 0.15
+        filters:
+          - "verified_accounts"
+          - "high_follower_count"
+          - "financial_keywords"
+          
+      - name: "reddit"
+        subreddits:
+          - "wallstreetbets"
+          - "stocks"
+          - "investing"
+        weight: 0.10
+        
+      - name: "stocktwits"
+        weight: 0.10
+        
+  analyst_sentiment:
+    sources:
+      - name: "rating_changes"
+        weight: 0.25
+        
+      - name: "estimate_revisions"
+        weight: 0.20
+        
+      - name: "price_target_changes"
+        weight: 0.15
+        
+  insider_activity:
+    weight: 0.10
+    signals:
+      - "insider_buys"
+      - "insider_sells"
+      - "cluster_activity"
+
+# =============================================================================
+# 情绪分析方法
+# =============================================================================
+analysis_methods:
+  text_sentiment:
+    model: "finbert"  # 金融领域微调的BERT
+    fallback: "vader"
+    
+    preprocessing:
+      - "remove_boilerplate"
+      - "extract_relevant_sections"
+      - "normalize_entities"
+      
+    output:
+      - score: "range [-1, 1]"
+      - confidence: "model confidence"
+      - keywords: "key sentiment drivers"
+      
+  aggregation:
+    method: "weighted_average"
+    time_decay:
+      enabled: true
+      half_life: "3d"
+      
+    outlier_handling:
+      method: "winsorize"
+      bounds: [5, 95]
+      
+  trend_detection:
+    methods:
+      - "momentum"
+      - "acceleration"
+      - "regime_change"
+    
+    windows:
+      - "24h"
+      - "7d"
+      - "30d"
+
+# =============================================================================
+# 情绪指标
+# =============================================================================
+sentiment_indicators:
+  composite_score:
+    description: "综合情绪评分"
+    range: [-100, 100]
+    interpretation:
+      strong_bullish: [60, 100]
+      bullish: [20, 60]
+      neutral: [-20, 20]
+      bearish: [-60, -20]
+      strong_bearish: [-100, -60]
+      
+  news_sentiment:
+    description: "新闻情绪"
+    components:
+      - "headline_sentiment"
+      - "article_body_sentiment"
+      - "tone_analysis"
+      
+  social_sentiment:
+    description: "社交媒体情绪"
+    components:
+      - "mention_volume"
+      - "sentiment_polarity"
+      - "engagement_metrics"
+      
+  analyst_sentiment:
+    description: "分析师情绪"
+    components:
+      - "rating_momentum"
+      - "estimate_revision_breadth"
+      - "price_target_direction"
+      
+  put_call_ratio:
+    description: "期权市场情绪"
+    interpretation:
+      bullish: "<0.7"
+      neutral: "0.7-1.0"
+      bearish: ">1.0"
+      
+  short_interest:
+    description: "做空情绪"
+    metrics:
+      - "short_interest_ratio"
+      - "days_to_cover"
+      - "short_interest_change"
+
+# =============================================================================
+# 信号生成
+# =============================================================================
+signal_generation:
+  contrarian_signals:
+    description: "逆向情绪信号"
+    conditions:
+      buy_signal:
+        - "composite_score < -60"
+        - "extreme_fear_reading"
+        - "capitulation_volume"
+        
+      sell_signal:
+        - "composite_score > 60"
+        - "euphoria_indicators"
+        - "complacency_reading"
+        
+  momentum_signals:
+    description: "情绪动量信号"
+    conditions:
+      bullish:
+        - "sentiment_improving"
+        - "positive_revision_breadth"
+        - "increasing_analyst_targets"
+        
+      bearish:
+        - "sentiment_deteriorating"
+        - "negative_revision_breadth"
+        - "decreasing_analyst_targets"
+
+# =============================================================================
+# 输出格式
+# =============================================================================
+output_format:
+  sections:
+    - name: "sentiment_summary"
+      fields:
+        - composite_score
+        - sentiment_label
+        - trend_direction
+        - confidence_level
+        
+    - name: "news_analysis"
+      fields:
+        - news_sentiment_score
+        - key_headlines
+        - sentiment_drivers
+        - volume_trend
+        
+    - name: "social_analysis"
+      fields:
+        - social_sentiment_score
+        - mention_volume
+        - trending_topics
+        - influential_posts
+        
+    - name: "analyst_analysis"
+      fields:
+        - analyst_sentiment_score
+        - recent_rating_changes
+        - estimate_revisions
+        - price_target_changes
+        
+    - name: "market_sentiment"
+      fields:
+        - put_call_ratio
+        - short_interest
+        - options_flow
+        - institutional_activity
+        
+    - name: "sentiment_signals"
+      fields:
+        - contrarian_signals
+        - momentum_signals
+        - divergence_alerts
+
+# =============================================================================
+# 护栏规则
+# =============================================================================
+guardrails:
+  rules:
+    - id: "time_decay_warning"
+      description: "提醒情绪数据的时效性"
+      include_in_output: true
+      template: "情绪数据时效性强，本分析基于截至{timestamp}的数据"
+      
+    - id: "sample_size_warning"
+      description: "样本量不足警告"
+      condition: "mention_count < 50"
+      warning: "社交媒体样本量较少，情绪评估可靠性降低"
+      
+    - id: "manipulation_awareness"
+      description: "注意可能的情绪操纵"
+      checks:
+        - "unusual_volume_spike"
+        - "coordinated_posting"
+        - "bot_activity"
+        
+    - id: "sentiment_not_prediction"
+      description: "情绪不是预测"
+      include_in_output: true
+      template: "情绪分析反映当前市场观点，不代表未来价格走势"
+
+# =============================================================================
+# 置信度因子
+# =============================================================================
+confidence_factors:
+  high_confidence:
+    - "大量数据点支持"
+    - "多数据源一致"
+    - "清晰的情绪趋势"
+    - "历史模式验证"
+    
+  low_confidence:
+    - "数据量不足"
+    - "数据源矛盾"
+    - "极端波动期"
+    - "异常活动迹象"
+    
+  adjustments:
+    large_sample: +0.10
+    source_agreement: +0.15
+    extreme_readings: -0.10
+    manipulation_risk: -0.20

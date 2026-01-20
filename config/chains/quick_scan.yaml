@@ -1,0 +1,336 @@
+# Quick Scan 分析链配置
+# 用于快速筛选和初步评估，适合批量扫描场景
+# 版本: 1.0.0
+
+version: "1.0.0"
+chain_name: "quick_scan"
+chain_type: "screening"
+
+description:
+  summary: "快速扫描分析链 - 2分钟内完成初步评估"
+  use_cases:
+    - "批量股票筛选"
+    - "投资机会初筛"
+    - "每日市场扫描"
+    - "快速健康检查"
+  output_type: "screening_result"
+  estimated_time: "1-2 minutes"
+
+# =============================================================================
+# 执行配置
+# =============================================================================
+execution:
+  mode: "fast"
+  parallel: true
+  max_concurrent: 5
+  
+  timeouts:
+    task: 20       # 单任务超时(秒)
+    stage: 45      # 单阶段超时(秒)
+    total: 120     # 总超时(秒)
+    
+  retry:
+    max_attempts: 1  # 快速扫描不重试
+    
+  cache:
+    enabled: true
+    market_data_ttl: 300      # 5分钟
+    fundamentals_ttl: 3600    # 1小时
+
+# =============================================================================
+# 分析阶段定义
+# =============================================================================
+stages:
+  # Stage 1: 数据获取 (并行)
+  - name: "data_fetch"
+    order: 1
+    parallel: true
+    timeout: 15
+    
+    tasks:
+      - name: "fetch_price"
+        type: "data_fetch"
+        provider: "yfinance"
+        params:
+          data_type: "current_quote"
+          include:
+            - "price"
+            - "change"
+            - "volume"
+            - "market_cap"
+            
+      - name: "fetch_fundamentals"
+        type: "data_fetch"
+        provider: "yfinance"
+        params:
+          data_type: "key_stats"
+          include:
+            - "pe_ratio"
+            - "pb_ratio"
+            - "dividend_yield"
+            - "revenue_growth"
+            - "profit_margin"
+            
+      - name: "fetch_technicals"
+        type: "data_fetch"
+        provider: "yfinance"
+        params:
+          data_type: "technical_summary"
+          include:
+            - "sma_50"
+            - "sma_200"
+            - "rsi_14"
+            - "52w_range"
+
+  # Stage 2: 快速评估 (并行)
+  - name: "quick_assessment"
+    order: 2
+    parallel: true
+    timeout: 30
+    depends_on: ["data_fetch"]
+    
+    tasks:
+      - name: "valuation_check"
+        type: "agent"
+        agent: "valuation"
+        mode: "quick"  # 使用简化模式
+        params:
+          methods: ["pe_relative", "pb_relative"]
+          skip_dcf: true
+          skip_scenarios: true
+        outputs:
+          - "valuation_score"
+          - "vs_sector_avg"
+          - "quick_assessment"
+          
+      - name: "momentum_check"
+        type: "agent"
+        agent: "technical"
+        mode: "quick"
+        params:
+          indicators: ["trend", "rsi", "ma_position"]
+          skip_patterns: true
+        outputs:
+          - "momentum_score"
+          - "trend_direction"
+          - "technical_rating"
+          
+      - name: "quality_check"
+        type: "agent"
+        agent: "earnings"
+        mode: "quick"
+        params:
+          metrics: ["profit_margin", "roe", "debt_equity"]
+          skip_deep_analysis: true
+        outputs:
+          - "quality_score"
+          - "financial_health"
+
+  # Stage 3: 综合评分
+  - name: "scoring"
+    order: 3
+    parallel: false
+    timeout: 15
+    depends_on: ["quick_assessment"]
+    
+    tasks:
+      - name: "composite_score"
+        type: "calculation"
+        method: "weighted_average"
+        inputs:
+          - source: "valuation_check.valuation_score"
+            weight: 0.35
+          - source: "momentum_check.momentum_score"
+            weight: 0.30
+          - source: "quality_check.quality_score"
+            weight: 0.35
+        outputs:
+          - "overall_score"
+          - "score_components"
+          
+      - name: "generate_signal"
+        type: "rule_based"
+        rules:
+          - condition: "overall_score >= 0.75"
+            signal: "strong_interest"
+            action: "add_to_watchlist_priority"
+          - condition: "overall_score >= 0.60"
+            signal: "moderate_interest"
+            action: "add_to_watchlist"
+          - condition: "overall_score >= 0.40"
+            signal: "neutral"
+            action: "monitor"
+          - condition: "overall_score < 0.40"
+            signal: "low_interest"
+            action: "skip"
+
+# =============================================================================
+# 评分标准
+# =============================================================================
+scoring_criteria:
+  valuation_score:
+    metrics:
+      pe_vs_sector:
+        weight: 0.5
+        scoring:
+          - range: [0, 0.7]      # PE低于行业30%+
+            score: 1.0
+          - range: [0.7, 0.9]
+            score: 0.8
+          - range: [0.9, 1.1]
+            score: 0.6
+          - range: [1.1, 1.3]
+            score: 0.4
+          - range: [1.3, null]
+            score: 0.2
+            
+      pb_vs_historical:
+        weight: 0.5
+        scoring:
+          - range: [0, 0.8]
+            score: 1.0
+          - range: [0.8, 1.0]
+            score: 0.7
+          - range: [1.0, 1.2]
+            score: 0.5
+          - range: [1.2, null]
+            score: 0.3
+            
+  momentum_score:
+    metrics:
+      trend_alignment:
+        weight: 0.4
+        scoring:
+          above_200ma_and_50ma: 1.0
+          above_200ma_below_50ma: 0.6
+          below_200ma_above_50ma: 0.4
+          below_both: 0.2
+          
+      rsi_position:
+        weight: 0.3
+        scoring:
+          - range: [30, 50]
+            score: 0.9   # 超卖反弹区
+          - range: [50, 70]
+            score: 0.7   # 健康上涨
+          - range: [0, 30]
+            score: 0.5   # 极度超卖
+          - range: [70, 100]
+            score: 0.3   # 超买风险
+            
+      price_momentum:
+        weight: 0.3
+        based_on: "3m_return_vs_sector"
+        
+  quality_score:
+    metrics:
+      profit_margin:
+        weight: 0.35
+        benchmark: "sector_median"
+        
+      roe:
+        weight: 0.35
+        thresholds:
+          excellent: 0.20
+          good: 0.15
+          fair: 0.10
+          poor: 0.05
+          
+      debt_equity:
+        weight: 0.30
+        lower_is_better: true
+        thresholds:
+          excellent: 0.3
+          good: 0.5
+          fair: 1.0
+          poor: 2.0
+
+# =============================================================================
+# 输出格式
+# =============================================================================
+output:
+  format: "screening_card"
+  
+  fields:
+    - name: "ticker"
+      type: "string"
+      
+    - name: "company_name"
+      type: "string"
+      
+    - name: "current_price"
+      type: "currency"
+      
+    - name: "overall_score"
+      type: "score"
+      range: [0, 1]
+      display: "percentage"
+      
+    - name: "signal"
+      type: "enum"
+      values: ["strong_interest", "moderate_interest", "neutral", "low_interest"]
+      
+    - name: "valuation_rating"
+      type: "rating"
+      scale: ["cheap", "fair", "expensive"]
+      
+    - name: "momentum_rating"
+      type: "rating"
+      scale: ["bullish", "neutral", "bearish"]
+      
+    - name: "quality_rating"
+      type: "rating"
+      scale: ["high", "medium", "low"]
+      
+    - name: "key_highlight"
+      type: "text"
+      max_length: 100
+      
+    - name: "key_concern"
+      type: "text"
+      max_length: 100
+      
+  sorting:
+    default: "overall_score"
+    direction: "desc"
+    
+  filtering:
+    min_score: 0.4
+    exclude_signals: ["low_interest"]
+
+# =============================================================================
+# 批量处理配置
+# =============================================================================
+batch_config:
+  max_targets: 50
+  
+  chunking:
+    enabled: true
+    chunk_size: 10
+    delay_between_chunks: 1  # 秒
+    
+  rate_limiting:
+    requests_per_minute: 60
+    
+  error_handling:
+    on_single_failure: "continue"
+    max_failures: 10
+    failure_threshold: 0.3  # 30%失败则终止
+
+# =============================================================================
+# 后续动作
+# =============================================================================
+follow_up_actions:
+  strong_interest:
+    - action: "trigger_full_analysis"
+      chain: "full_analysis"
+      auto: false
+      prompt: "是否对此标的进行完整分析？"
+      
+  moderate_interest:
+    - action: "add_to_watchlist"
+      watchlist: "screening_candidates"
+      
+  all:
+    - action: "log_result"
+      destination: "screening_history"

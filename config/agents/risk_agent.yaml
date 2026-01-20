@@ -1,0 +1,332 @@
+# 风险分析Agent配置
+# 
+# 定义风险评估Agent的行为、风险分类和评估框架
+
+version: "1.0.0"
+agent_name: "risk"
+agent_type: "analysis"
+description: "风险评估Agent - 全面识别和量化投资风险"
+
+# =============================================================================
+# Agent人格设定
+# =============================================================================
+persona:
+  role: "风险管理专家"
+  experience: "20年机构投资风险管理经验"
+  philosophy: |
+    风险管理的核心不是消除风险，而是理解风险并获得适当补偿。
+    每一个投资机会都伴随着风险，关键是识别、量化和监控。
+    最危险的风险是你没有意识到的风险。
+  
+  communication_style:
+    - "系统性地分类和量化风险"
+    - "提供具体的风险缓解建议"
+    - "区分可控风险和系统性风险"
+    - "始终保持审慎态度"
+
+# =============================================================================
+# 风险分类体系
+# =============================================================================
+risk_taxonomy:
+  # 估值风险
+  valuation_risk:
+    description: "估值过高导致的下行风险"
+    metrics:
+      - "pe_vs_history"
+      - "pe_vs_growth"
+      - "ev_ebitda_percentile"
+      - "implied_growth_rate"
+    severity_levels:
+      low: "估值处于历史均值以下"
+      medium: "估值高于历史均值但低于峰值"
+      high: "估值接近或超过历史峰值"
+      
+  # 业务风险
+  business_risk:
+    description: "核心业务面临的经营风险"
+    sub_categories:
+      competitive_risk:
+        description: "竞争加剧风险"
+        indicators:
+          - "market_share_trend"
+          - "pricing_power"
+          - "new_entrants"
+          
+      execution_risk:
+        description: "战略执行风险"
+        indicators:
+          - "management_track_record"
+          - "strategic_initiatives"
+          - "operational_complexity"
+          
+      disruption_risk:
+        description: "技术或商业模式颠覆风险"
+        indicators:
+          - "technology_obsolescence"
+          - "business_model_vulnerability"
+          
+      concentration_risk:
+        description: "业务集中度风险"
+        indicators:
+          - "customer_concentration"
+          - "supplier_concentration"
+          - "geographic_concentration"
+          - "product_concentration"
+          
+  # 财务风险
+  financial_risk:
+    description: "财务状况相关风险"
+    sub_categories:
+      leverage_risk:
+        description: "杠杆风险"
+        metrics:
+          - debt_to_equity: {warning: 1.5, critical: 3.0}
+          - debt_to_ebitda: {warning: 3.0, critical: 5.0}
+          - interest_coverage: {warning: 3.0, critical: 1.5}
+          
+      liquidity_risk:
+        description: "流动性风险"
+        metrics:
+          - current_ratio: {warning: 1.2, critical: 0.8}
+          - quick_ratio: {warning: 0.8, critical: 0.5}
+          
+      covenant_risk:
+        description: "债务契约风险"
+        checks:
+          - "covenant_headroom"
+          - "refinancing_needs"
+          
+      earnings_quality_risk:
+        description: "盈利质量风险"
+        indicators:
+          - "accruals_ratio"
+          - "cash_conversion"
+          - "accounting_aggressiveness"
+          
+  # 市场风险
+  market_risk:
+    description: "市场波动相关风险"
+    sub_categories:
+      beta_risk:
+        description: "系统性风险敞口"
+        metric: "beta"
+        
+      volatility_risk:
+        description: "价格波动风险"
+        metrics:
+          - "historical_volatility"
+          - "implied_volatility"
+          
+      correlation_risk:
+        description: "相关性风险"
+        consideration: "与投资组合其他资产的相关性"
+        
+      liquidity_risk:
+        description: "交易流动性风险"
+        metrics:
+          - "average_volume"
+          - "bid_ask_spread"
+          - "market_impact"
+          
+  # 监管风险
+  regulatory_risk:
+    description: "监管和政策风险"
+    categories:
+      - "antitrust_scrutiny"
+      - "data_privacy_regulations"
+      - "environmental_regulations"
+      - "tax_policy_changes"
+      - "trade_policy"
+      - "sector_specific_regulations"
+      
+  # ESG风险
+  esg_risk:
+    description: "环境、社会和治理风险"
+    sub_categories:
+      environmental:
+        - "carbon_footprint"
+        - "climate_transition_risk"
+        - "resource_dependency"
+        
+      social:
+        - "labor_practices"
+        - "product_safety"
+        - "community_relations"
+        
+      governance:
+        - "board_independence"
+        - "executive_compensation"
+        - "shareholder_rights"
+        - "accounting_transparency"
+
+# =============================================================================
+# 压力测试配置
+# =============================================================================
+stress_testing:
+  scenarios:
+    - name: "recession"
+      description: "经济衰退情景"
+      parameters:
+        revenue_decline: -20%
+        margin_compression: -300bps
+        multiple_contraction: -25%
+        
+    - name: "rate_shock"
+      description: "利率大幅上升"
+      parameters:
+        rate_increase: +200bps
+        discount_rate_impact: +150bps
+        refinancing_cost_increase: true
+        
+    - name: "sector_downturn"
+      description: "行业下行周期"
+      parameters:
+        sector_multiple_decline: -30%
+        competitive_pressure: "increased"
+        
+    - name: "black_swan"
+      description: "极端尾部事件"
+      parameters:
+        market_decline: -40%
+        liquidity_crisis: true
+        credit_spread_widening: +500bps
+
+# =============================================================================
+# 风险评分模型
+# =============================================================================
+risk_scoring:
+  methodology: "weighted_composite"
+  
+  weights:
+    valuation_risk: 0.20
+    business_risk: 0.25
+    financial_risk: 0.20
+    market_risk: 0.15
+    regulatory_risk: 0.10
+    esg_risk: 0.10
+    
+  score_interpretation:
+    0-20: "低风险"
+    20-40: "中低风险"
+    40-60: "中等风险"
+    60-80: "中高风险"
+    80-100: "高风险"
+    
+  risk_adjusted_return:
+    formula: "expected_return / risk_score"
+    minimum_ratio: 0.15  # 每单位风险至少15%预期回报
+
+# =============================================================================
+# 风险矩阵配置
+# =============================================================================
+risk_matrix:
+  probability_levels:
+    - name: "rare"
+      range: [0, 0.1]
+      
+    - name: "unlikely"
+      range: [0.1, 0.3]
+      
+    - name: "possible"
+      range: [0.3, 0.5]
+      
+    - name: "likely"
+      range: [0.5, 0.7]
+      
+    - name: "almost_certain"
+      range: [0.7, 1.0]
+      
+  impact_levels:
+    - name: "negligible"
+      description: "对投资论点影响<5%"
+      
+    - name: "minor"
+      description: "影响5-15%"
+      
+    - name: "moderate"
+      description: "影响15-30%"
+      
+    - name: "major"
+      description: "影响30-50%"
+      
+    - name: "severe"
+      description: "影响>50%或投资论点失效"
+
+# =============================================================================
+# 输出格式
+# =============================================================================
+output_format:
+  sections:
+    - name: "risk_summary"
+      fields:
+        - overall_risk_score
+        - risk_rating
+        - key_risks
+        - risk_trend
+        
+    - name: "risk_breakdown"
+      fields:
+        - valuation_risk_detail
+        - business_risk_detail
+        - financial_risk_detail
+        - market_risk_detail
+        - regulatory_risk_detail
+        - esg_risk_detail
+        
+    - name: "risk_matrix"
+      visualization: "heatmap"
+      axes:
+        x: "probability"
+        y: "impact"
+        
+    - name: "stress_test_results"
+      scenarios:
+        - scenario_name
+        - impact_on_valuation
+        - probability_assessment
+        
+    - name: "risk_mitigation"
+      fields:
+        - hedging_strategies
+        - position_sizing_recommendation
+        - monitoring_triggers
+        - stop_loss_levels
+
+# =============================================================================
+# 护栏规则
+# =============================================================================
+guardrails:
+  rules:
+    - id: "no_false_assurance"
+      description: "不提供虚假安慰"
+      forbidden_phrases:
+        - "没有风险"
+        - "完全安全"
+        - "不可能下跌"
+        
+    - id: "quantify_risks"
+      description: "尽可能量化风险"
+      requirements:
+        - "提供具体数字或区间"
+        - "引用历史数据作为参考"
+        
+    - id: "unknown_risks"
+      description: "承认未知风险"
+      include_in_output: true
+      template: "本分析可能未能识别所有潜在风险，特别是低概率高影响的尾部事件"
+
+# =============================================================================
+# 置信度因子
+# =============================================================================
+confidence_factors:
+  high_confidence:
+    - "充分的历史数据支持"
+    - "清晰的风险传导机制"
+    - "可量化的风险指标"
+    - "多数据源交叉验证"
+    
+  low_confidence:
+    - "新兴风险类型"
+    - "数据有限"
+    - "高度依赖定性判断"
+    - "风险相互关联复杂"

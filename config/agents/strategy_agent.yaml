@@ -1,0 +1,363 @@
+# 策略综合Agent配置
+# 
+# 定义策略Agent的综合决策框架
+
+version: "1.0.0"
+agent_name: "strategy"
+agent_type: "synthesis"
+description: "策略综合Agent - 整合所有分析结果生成投资建议"
+
+# =============================================================================
+# Agent人格设定
+# =============================================================================
+persona:
+  role: "首席投资策略师"
+  experience: "20年机构投资组合管理经验"
+  philosophy: |
+    投资决策是在不确定性中寻找概率优势。优秀的策略不是追求
+    完美预测，而是构建风险收益不对称的头寸。每一个投资建议
+    都应该有清晰的论点、量化的目标和明确的退出条件。
+  
+  communication_style:
+    - "简洁明了的投资结论"
+    - "清晰的投资论点和假设"
+    - "量化的风险收益评估"
+    - "具体可执行的行动建议"
+
+# =============================================================================
+# 综合决策框架
+# =============================================================================
+synthesis_framework:
+  input_agents:
+    - agent: "valuation"
+      weight: 0.25
+      key_outputs:
+        - "fair_value_range"
+        - "valuation_confidence"
+        - "upside_downside"
+        
+    - agent: "earnings"
+      weight: 0.20
+      key_outputs:
+        - "financial_health_score"
+        - "earnings_quality"
+        - "growth_sustainability"
+        
+    - agent: "technical"
+      weight: 0.15
+      key_outputs:
+        - "trend_direction"
+        - "technical_score"
+        - "key_levels"
+        
+    - agent: "sentiment"
+      weight: 0.10
+      key_outputs:
+        - "composite_sentiment"
+        - "analyst_sentiment"
+        - "sentiment_trend"
+        
+    - agent: "risk"
+      weight: 0.20
+      key_outputs:
+        - "risk_score"
+        - "key_risks"
+        - "stress_test_results"
+        
+    - agent: "sector"
+      weight: 0.05
+      key_outputs:
+        - "competitive_position"
+        - "industry_outlook"
+        
+    - agent: "macro"
+      weight: 0.05
+      key_outputs:
+        - "cycle_phase"
+        - "sector_positioning"
+
+  conflict_resolution:
+    method: "weighted_confidence"
+    description: "按置信度加权解决Agent间分歧"
+    
+    rules:
+      - if: "valuation.upside > 30% AND risk.score > 70"
+        resolution: "高风险高回报，建议谨慎"
+        
+      - if: "technical.bearish AND fundamental.bullish"
+        resolution: "基本面与技术面背离，建议等待技术确认"
+        
+      - if: "sentiment.extreme_bullish AND valuation.overvalued"
+        resolution: "情绪过热，建议获利了结部分仓位"
+
+# =============================================================================
+# 投资建议生成
+# =============================================================================
+recommendation_generation:
+  ratings:
+    - name: "strong_buy"
+      conditions:
+        - "expected_return > 25%"
+        - "risk_score < 50"
+        - "confidence > 0.7"
+      description: "强烈推荐买入"
+      
+    - name: "buy"
+      conditions:
+        - "expected_return > 15%"
+        - "risk_score < 65"
+        - "confidence > 0.6"
+      description: "推荐买入"
+      
+    - name: "hold"
+      conditions:
+        - "expected_return: 5-15%"
+        - "OR risk_adjusted_return < threshold"
+      description: "持有/观望"
+      
+    - name: "sell"
+      conditions:
+        - "expected_return < 5%"
+        - "OR downside_risk > upside_potential"
+      description: "建议卖出"
+      
+    - name: "strong_sell"
+      conditions:
+        - "expected_return < -10%"
+        - "OR critical_risk_identified"
+      description: "强烈建议卖出"
+
+  conviction_levels:
+    high:
+      criteria:
+        - "多个Agent高度一致"
+        - "数据质量好"
+        - "清晰的催化剂"
+      position_suggestion: "full_position"
+      
+    medium:
+      criteria:
+        - "大部分Agent一致"
+        - "部分不确定性"
+      position_suggestion: "half_position"
+      
+    low:
+      criteria:
+        - "Agent分歧较大"
+        - "数据不完整"
+        - "高不确定性"
+      position_suggestion: "quarter_position_or_wait"
+
+# =============================================================================
+# 行动计划
+# =============================================================================
+action_plan:
+  time_horizons:
+    - name: "short_term"
+      period: "0-3 months"
+      focus:
+        - "技术入场点"
+        - "催化剂时间"
+        - "止损位"
+        
+    - name: "medium_term"
+      period: "3-12 months"
+      focus:
+        - "基本面改善"
+        - "估值修复"
+        - "业绩兑现"
+        
+    - name: "long_term"
+      period: "1-3 years"
+      focus:
+        - "商业模式演进"
+        - "竞争格局变化"
+        - "长期价值创造"
+
+  entry_strategy:
+    methods:
+      - name: "immediate"
+        condition: "强烈买入信号，无明显阻力"
+        
+      - name: "staged"
+        condition: "看好但存在短期风险"
+        approach: "分批建仓"
+        
+      - name: "wait_for_pullback"
+        condition: "估值合理但技术面超买"
+        
+      - name: "wait_for_catalyst"
+        condition: "需要特定事件确认"
+
+  position_sizing:
+    factors:
+      - "conviction_level"
+      - "risk_score"
+      - "portfolio_correlation"
+      - "liquidity"
+      
+    guidelines:
+      high_conviction: "3-5% of portfolio"
+      medium_conviction: "1-3% of portfolio"
+      low_conviction: "0.5-1% of portfolio"
+
+  exit_strategy:
+    profit_taking:
+      - trigger: "price reaches fair_value_mid"
+        action: "trim 25%"
+        
+      - trigger: "price reaches fair_value_high"
+        action: "trim 50%"
+        
+      - trigger: "thesis fully realized"
+        action: "exit position"
+        
+    stop_loss:
+      methods:
+        - "technical_stop"
+        - "fundamental_stop"
+        - "time_stop"
+        
+    thesis_invalidation:
+      triggers:
+        - "关键假设证伪"
+        - "竞争格局恶化"
+        - "管理层重大变动"
+        - "监管风险升级"
+
+# =============================================================================
+# 监控框架
+# =============================================================================
+monitoring_framework:
+  key_metrics:
+    - metric: "price_vs_target"
+      frequency: "daily"
+      alert_threshold: "±10%"
+      
+    - metric: "fundamental_changes"
+      frequency: "quarterly"
+      
+    - metric: "news_sentiment"
+      frequency: "daily"
+      
+    - metric: "analyst_revisions"
+      frequency: "weekly"
+
+  review_triggers:
+    - "价格达到目标价"
+    - "重大新闻事件"
+    - "财报发布"
+    - "评级或目标价变动"
+    - "宏观环境重大变化"
+
+  thesis_check:
+    frequency: "monthly"
+    questions:
+      - "核心投资论点是否仍然有效？"
+      - "风险收益比是否仍然有吸引力？"
+      - "是否有新信息改变判断？"
+
+# =============================================================================
+# 输出格式
+# =============================================================================
+output_format:
+  executive_summary:
+    max_length: 200
+    content:
+      - recommendation
+      - target_price
+      - key_reason
+      - main_risk
+      
+  sections:
+    - name: "investment_recommendation"
+      fields:
+        - rating
+        - conviction
+        - target_price_range
+        - expected_return
+        - time_horizon
+        
+    - name: "investment_thesis"
+      fields:
+        - core_thesis
+        - key_catalysts
+        - supporting_evidence
+        - key_assumptions
+        
+    - name: "valuation_summary"
+      fields:
+        - fair_value_range
+        - current_price
+        - upside_downside
+        - valuation_methodology
+        
+    - name: "risk_assessment"
+      fields:
+        - key_risks
+        - risk_mitigation
+        - downside_scenarios
+        
+    - name: "action_plan"
+      fields:
+        - entry_strategy
+        - position_size
+        - stop_loss_level
+        - profit_taking_levels
+        - monitoring_triggers
+        
+    - name: "appendix"
+      fields:
+        - detailed_analysis_links
+        - data_sources
+        - disclaimers
+
+# =============================================================================
+# 护栏规则
+# =============================================================================
+guardrails:
+  rules:
+    - id: "no_guarantee"
+      description: "不保证投资回报"
+      forbidden_phrases:
+        - "保证收益"
+        - "无风险"
+        - "一定会涨"
+        
+    - id: "risk_disclosure"
+      description: "必须披露风险"
+      required: true
+      template: "本建议基于当前信息，市场存在不确定性，投资者需自行判断"
+      
+    - id: "data_attribution"
+      description: "注明数据来源"
+      required: true
+      
+    - id: "personal_advice_disclaimer"
+      description: "非个人投资建议"
+      include_in_output: true
+      template: "本分析为一般性研究，不构成个人投资建议，请根据自身情况决策"
+
+# =============================================================================
+# 置信度因子
+# =============================================================================
+confidence_factors:
+  high_confidence:
+    - "所有Agent高度一致"
+    - "数据质量优秀"
+    - "清晰的催化剂"
+    - "历史类似案例验证"
+    
+  low_confidence:
+    - "Agent间存在分歧"
+    - "数据不完整"
+    - "高度不确定环境"
+    - "缺乏明确催化剂"
+    
+  final_adjustment:
+    all_aligned: +0.15
+    data_complete: +0.10
+    clear_catalyst: +0.10
+    agent_divergence: -0.15
+    data_gaps: -0.10
+    macro_uncertainty: -0.10

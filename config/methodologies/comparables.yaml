@@ -1,0 +1,292 @@
+# 可比公司估值方法论配置
+# 
+# 定义可比公司分析的完整框架
+
+version: "1.0.0"
+methodology_name: "comparable_companies"
+methodology_type: "relative_valuation"
+
+# =============================================================================
+# 方法论描述
+# =============================================================================
+description:
+  summary: "可比公司分析 - 通过参考类似公司的估值倍数来评估目标公司价值"
+  
+  when_to_use:
+    - "有足够数量的可比公司"
+    - "行业估值倍数有意义"
+    - "公司盈利为正"
+    - "作为DCF的交叉验证"
+    
+  when_not_to_use:
+    - "公司高度独特，无可比标的"
+    - "行业处于剧烈变革期"
+    - "公司亏损且无可比的增长指标"
+
+# =============================================================================
+# 可比公司筛选
+# =============================================================================
+peer_selection:
+  criteria:
+    primary:
+      - name: "industry_classification"
+        description: "行业分类一致"
+        sources: ["GICS", "SIC", "NAICS"]
+        
+      - name: "business_model"
+        description: "商业模式相似"
+        factors:
+          - "revenue_sources"
+          - "customer_types"
+          - "geographic_focus"
+          
+      - name: "size"
+        description: "规模相近"
+        metrics:
+          - market_cap: {range_factor: 0.2, weight: 0.3}
+          - revenue: {range_factor: 0.3, weight: 0.4}
+          - enterprise_value: {range_factor: 0.25, weight: 0.3}
+          
+    secondary:
+      - name: "growth_profile"
+        description: "增长特征相似"
+        tolerance: 0.5  # ±50%增长率差异
+        
+      - name: "profitability"
+        description: "盈利能力相近"
+        tolerance: 0.3  # ±30%利润率差异
+        
+      - name: "capital_structure"
+        description: "资本结构相似"
+        tolerance: 0.4
+        
+  peer_count:
+    minimum: 3
+    optimal: 5-8
+    maximum: 15
+    
+  exclusion_rules:
+    - "recent_ma_target"
+    - "pending_restructuring"
+    - "extreme_outliers"
+    - "insufficient_liquidity"
+
+# =============================================================================
+# 估值倍数
+# =============================================================================
+valuation_multiples:
+  equity_multiples:
+    - name: "P/E"
+      formula: "Price / EPS"
+      variants:
+        - trailing_pe: "使用过去12个月EPS"
+        - forward_pe: "使用未来12个月预期EPS"
+        - normalized_pe: "使用正常化EPS"
+      applicability:
+        suitable: "盈利公司，稳定利润率"
+        not_suitable: "亏损公司，周期性行业底部"
+      adjustments:
+        - "非经常性项目"
+        - "会计政策差异"
+        
+    - name: "P/B"
+      formula: "Price / Book Value per Share"
+      applicability:
+        suitable: "资产密集型行业，金融公司"
+        not_suitable: "轻资产公司，负净资产"
+      adjustments:
+        - "无形资产调整"
+        - "公允价值调整"
+        
+    - name: "P/S"
+      formula: "Price / Sales per Share"
+      applicability:
+        suitable: "亏损公司，高增长公司"
+        not_suitable: "利润率差异大的公司间比较"
+      
+    - name: "PEG"
+      formula: "P/E / EPS Growth Rate"
+      applicability:
+        suitable: "高增长公司，同质化增长预期"
+        not_suitable: "低增长或负增长公司"
+
+  enterprise_multiples:
+    - name: "EV/EBITDA"
+      formula: "Enterprise Value / EBITDA"
+      applicability:
+        suitable: "资本密集型行业，跨资本结构比较"
+        not_suitable: "EBITDA为负，折旧差异大"
+      adjustments:
+        - "租赁调整"
+        - "非经常性项目"
+        
+    - name: "EV/EBIT"
+      formula: "Enterprise Value / EBIT"
+      applicability:
+        suitable: "资本密集度差异大时"
+        
+    - name: "EV/Sales"
+      formula: "Enterprise Value / Revenue"
+      applicability:
+        suitable: "亏损公司，早期公司"
+        
+    - name: "EV/FCF"
+      formula: "Enterprise Value / Free Cash Flow"
+      applicability:
+        suitable: "现金流稳定公司"
+
+  industry_specific:
+    technology:
+      - "EV/ARR"
+      - "EV/Users"
+      - "Price/GMV"
+      
+    real_estate:
+      - "P/FFO"
+      - "P/NAV"
+      - "Cap Rate"
+      
+    financial:
+      - "P/TBV"
+      - "P/Deposits"
+      
+    energy:
+      - "EV/EBITDAX"
+      - "EV/Reserves"
+
+# =============================================================================
+# 估值计算
+# =============================================================================
+valuation_calculation:
+  steps:
+    1_collect_peer_data:
+      description: "收集可比公司财务和估值数据"
+      data_points:
+        - "current_price"
+        - "shares_outstanding"
+        - "net_debt"
+        - "minority_interest"
+        - "relevant_financials"
+        
+    2_calculate_multiples:
+      description: "计算各可比公司的估值倍数"
+      handle_outliers:
+        method: "winsorization"
+        percentiles: [10, 90]
+        
+    3_determine_statistics:
+      description: "计算统计值"
+      metrics:
+        - mean: "简单平均"
+        - median: "中位数（推荐）"
+        - harmonic_mean: "调和平均（P/E常用）"
+        - weighted_average: "加权平均（按相似度）"
+        
+    4_apply_premium_discount:
+      description: "应用溢价/折价"
+      factors:
+        premium_for:
+          - "更高增长率"
+          - "更强利润率"
+          - "更好管理层"
+          - "战略价值"
+        discount_for:
+          - "规模较小"
+          - "流动性较差"
+          - "治理问题"
+          - "业务风险"
+          
+    5_calculate_implied_value:
+      description: "计算隐含价值"
+      formula: "Target_Metric × Multiple = Implied_Value"
+      
+    6_cross_validate:
+      description: "多倍数交叉验证"
+      output: "value_range"
+
+# =============================================================================
+# 质量调整
+# =============================================================================
+quality_adjustments:
+  growth_adjustment:
+    description: "根据增长差异调整"
+    method: "PEG_based"
+    formula: "Adjusted_Multiple = Peer_Multiple × (Target_Growth / Peer_Growth)"
+    cap: 1.5  # 最大调整倍数
+    
+  profitability_adjustment:
+    description: "根据盈利能力差异调整"
+    method: "margin_based"
+    
+  risk_adjustment:
+    description: "根据风险差异调整"
+    factors:
+      - "beta_difference"
+      - "leverage_difference"
+      - "business_stability"
+
+# =============================================================================
+# 输出格式
+# =============================================================================
+output_format:
+  peer_comparison_table:
+    columns:
+      - "company"
+      - "market_cap"
+      - "ev"
+      - "revenue"
+      - "ebitda"
+      - "net_income"
+      - "growth_rate"
+      - "pe"
+      - "ev_ebitda"
+      - "ev_sales"
+      
+  summary_statistics:
+    - "mean"
+    - "median"
+    - "min"
+    - "max"
+    - "std_dev"
+    
+  valuation_range:
+    format:
+      low: "25th percentile multiple"
+      mid: "median multiple"
+      high: "75th percentile multiple"
+      
+  football_field:
+    description: "可视化各方法估值区间"
+    include: true
+
+# =============================================================================
+# 置信度因子
+# =============================================================================
+confidence_factors:
+  high_confidence:
+    - "5+高度可比的公司"
+    - "估值倍数分布紧密"
+    - "多个倍数指向相似结论"
+    - "清晰的溢价/折价理由"
+    
+  low_confidence:
+    - "可比公司少于3家"
+    - "倍数分布离散"
+    - "不同倍数结论差异大"
+    - "需要大幅调整"
+
+# =============================================================================
+# 警告规则
+# =============================================================================
+warnings:
+  - condition: "peer_count < 3"
+    warning: "可比公司数量不足，结论可靠性降低"
+    
+  - condition: "multiple_std_dev > mean * 0.5"
+    warning: "可比公司估值倍数分布离散，中位数更可靠"
+    
+  - condition: "target_growth >> peer_avg_growth"
+    warning: "目标公司增长率显著高于可比公司，需要增长调整"
+    
+  - condition: "large_adjustment_needed"
+    warning: "需要大幅溢价/折价调整，相对估值参考价值降低"

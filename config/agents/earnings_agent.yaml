@@ -1,0 +1,364 @@
+# 财报分析Agent配置
+# 
+# 定义财报深度分析Agent的行为和分析框架
+
+version: "1.0.0"
+agent_name: "earnings"
+agent_type: "analysis"
+description: "财报分析Agent - 深度分析财务报表质量和盈利可持续性"
+
+# =============================================================================
+# Agent人格设定
+# =============================================================================
+persona:
+  role: "资深财务分析师"
+  experience: "15年机构投资财务分析经验，CFA/CPA"
+  philosophy: |
+    财务报表是公司的体检报告。高质量的分析不仅要看表面数字，
+    更要挖掘背后的业务实质。盈利质量、现金流健康、资产负债表
+    稳健性共同决定了公司的真实价值。
+  
+  communication_style:
+    - "数据驱动，引用具体数字"
+    - "区分实质与会计表象"
+    - "关注趋势而非单点"
+    - "与历史和同业对比"
+
+# =============================================================================
+# 分析框架
+# =============================================================================
+analysis_framework:
+  # 收入分析
+  revenue_analysis:
+    components:
+      organic_growth:
+        description: "有机增长 vs 并购增长"
+        importance: "high"
+        
+      recurring_revenue:
+        description: "经常性收入占比"
+        metrics:
+          - "subscription_revenue"
+          - "service_revenue"
+          - "maintenance_revenue"
+          
+      revenue_concentration:
+        description: "收入集中度"
+        risk_thresholds:
+          single_customer: 0.10
+          top_5_customers: 0.30
+          
+      geographic_mix:
+        description: "地域分布"
+        
+      segment_performance:
+        description: "业务板块表现"
+        
+  # 盈利能力分析
+  profitability_analysis:
+    margins:
+      gross_margin:
+        definition: "(Revenue - COGS) / Revenue"
+        benchmarks:
+          technology: 0.60
+          consumer_staples: 0.35
+          industrials: 0.25
+          
+      operating_margin:
+        definition: "Operating Income / Revenue"
+        
+      ebitda_margin:
+        definition: "EBITDA / Revenue"
+        
+      net_margin:
+        definition: "Net Income / Revenue"
+        
+      fcf_margin:
+        definition: "Free Cash Flow / Revenue"
+        
+    analysis_dimensions:
+      - "trend_analysis"
+      - "peer_comparison"
+      - "historical_percentile"
+      - "margin_drivers"
+      
+  # 盈利质量分析
+  earnings_quality:
+    metrics:
+      accruals_ratio:
+        formula: "(Net Income - Operating Cash Flow) / Total Assets"
+        warning_threshold: 0.10
+        
+      cash_earnings_ratio:
+        formula: "Operating Cash Flow / Net Income"
+        healthy_range: [0.8, 1.2]
+        
+      one_time_items:
+        description: "非经常性损益占比"
+        warning_threshold: 0.15
+        
+      revenue_recognition:
+        flags:
+          - "大额应收增长快于收入"
+          - "递延收入异常下降"
+          - "合同资产激增"
+          
+      accounting_aggressiveness:
+        indicators:
+          - "折旧政策变更"
+          - "资本化比例上升"
+          - "准备金释放"
+          
+  # 现金流分析
+  cash_flow_analysis:
+    operating_cash_flow:
+      quality_checks:
+        - "vs_net_income"
+        - "trend_stability"
+        - "working_capital_impact"
+        
+    free_cash_flow:
+      definitions:
+        fcff: "EBIT(1-t) + D&A - CapEx - ΔNWC"
+        fcfe: "FCFF - Interest(1-t) + Net Borrowing"
+        simple: "Operating CF - CapEx"
+        
+      sustainability:
+        - "fcf_conversion_rate"
+        - "capex_to_depreciation"
+        - "maintenance_vs_growth_capex"
+        
+    working_capital:
+      metrics:
+        - "days_sales_outstanding"
+        - "days_inventory_outstanding"
+        - "days_payables_outstanding"
+        - "cash_conversion_cycle"
+        
+  # 资产负债表分析
+  balance_sheet_analysis:
+    leverage:
+      metrics:
+        debt_to_equity:
+          warning: 1.5
+          critical: 3.0
+          
+        debt_to_ebitda:
+          warning: 3.0
+          critical: 5.0
+          
+        interest_coverage:
+          warning: 3.0
+          critical: 1.5
+          
+    liquidity:
+      metrics:
+        current_ratio:
+          healthy: 1.5
+          warning: 1.0
+          
+        quick_ratio:
+          healthy: 1.0
+          warning: 0.5
+          
+    asset_quality:
+      checks:
+        - "goodwill_to_equity"
+        - "intangibles_trend"
+        - "inventory_obsolescence"
+        - "receivables_aging"
+        
+  # 资本配置分析
+  capital_allocation:
+    categories:
+      reinvestment:
+        metrics:
+          - "capex_to_revenue"
+          - "rd_to_revenue"
+          - "acquisition_spend"
+          
+      shareholder_returns:
+        metrics:
+          - "dividend_payout"
+          - "buyback_yield"
+          - "total_shareholder_yield"
+          
+    effectiveness:
+      roic:
+        description: "投资资本回报率"
+        formula: "NOPAT / Invested Capital"
+        
+      roic_vs_wacc:
+        description: "价值创造检验"
+        positive_spread: "创造价值"
+        negative_spread: "毁灭价值"
+
+# =============================================================================
+# 财务健康评分
+# =============================================================================
+scoring_model:
+  components:
+    profitability:
+      weight: 0.25
+      metrics:
+        - gross_margin_vs_peers
+        - operating_margin_trend
+        - roe_vs_cost_of_equity
+        
+    growth:
+      weight: 0.20
+      metrics:
+        - revenue_cagr_3y
+        - earnings_growth
+        - organic_growth_rate
+        
+    cash_flow:
+      weight: 0.20
+      metrics:
+        - fcf_margin
+        - fcf_conversion
+        - cash_flow_stability
+        
+    balance_sheet:
+      weight: 0.20
+      metrics:
+        - leverage_ratios
+        - liquidity_ratios
+        - asset_quality
+        
+    earnings_quality:
+      weight: 0.15
+      metrics:
+        - accruals_quality
+        - revenue_quality
+        - accounting_conservatism
+        
+  output:
+    score_range: [0, 100]
+    grades:
+      A: [80, 100]
+      B: [65, 80]
+      C: [50, 65]
+      D: [35, 50]
+      F: [0, 35]
+
+# =============================================================================
+# 红旗警告
+# =============================================================================
+red_flags:
+  critical:
+    - condition: "operating_cf < 0 for 2+ years"
+      flag: "持续经营性现金流为负"
+      
+    - condition: "accruals_ratio > 0.15"
+      flag: "盈利质量存疑（高应计比率）"
+      
+    - condition: "goodwill_impairment_risk"
+      flag: "商誉减值风险"
+      
+    - condition: "going_concern_doubt"
+      flag: "持续经营能力存疑"
+      
+  warning:
+    - condition: "revenue_growing_but_fcf_declining"
+      flag: "收入增长但现金流下降"
+      
+    - condition: "margin_compression_trend"
+      flag: "利润率持续收窄"
+      
+    - condition: "dso_increasing"
+      flag: "应收账款周转恶化"
+      
+    - condition: "frequent_restructuring"
+      flag: "频繁重组费用"
+
+# =============================================================================
+# 输出格式
+# =============================================================================
+output_format:
+  sections:
+    - name: "financial_health_summary"
+      fields:
+        - overall_score
+        - health_grade
+        - key_strengths
+        - key_concerns
+        - red_flags
+        
+    - name: "revenue_analysis"
+      fields:
+        - revenue_breakdown
+        - growth_analysis
+        - quality_assessment
+        
+    - name: "profitability_analysis"
+      fields:
+        - margin_summary
+        - margin_trends
+        - peer_comparison
+        - margin_drivers
+        
+    - name: "earnings_quality"
+      fields:
+        - quality_score
+        - accruals_analysis
+        - one_time_items
+        - accounting_flags
+        
+    - name: "cash_flow_analysis"
+      fields:
+        - fcf_summary
+        - conversion_analysis
+        - working_capital
+        - capex_assessment
+        
+    - name: "balance_sheet_analysis"
+      fields:
+        - leverage_summary
+        - liquidity_summary
+        - asset_quality
+        - off_balance_sheet
+        
+    - name: "capital_allocation"
+      fields:
+        - allocation_summary
+        - roic_analysis
+        - shareholder_returns
+
+# =============================================================================
+# 护栏规则
+# =============================================================================
+guardrails:
+  rules:
+    - id: "data_timeliness"
+      description: "确保使用最新财务数据"
+      check: "financial_data_age < 90_days"
+      
+    - id: "gaap_vs_nongaap"
+      description: "区分GAAP和非GAAP指标"
+      requirement: "明确说明使用的指标类型"
+      
+    - id: "industry_context"
+      description: "提供行业背景"
+      requirement: "与行业基准对比"
+      
+    - id: "one_time_adjustment"
+      description: "调整非经常性项目"
+      requirement: "说明所做调整"
+
+# =============================================================================
+# 置信度因子
+# =============================================================================
+confidence_factors:
+  high_confidence:
+    - "完整的季度数据（5年以上）"
+    - "审计报告无保留意见"
+    - "财务数据一致性好"
+    - "管理层指引准确历史"
+    
+  low_confidence:
+    - "数据不完整"
+    - "近期审计师变更"
+    - "重大会计政策变更"
+    - "频繁重述"
+    - "管理层指引历史不准"

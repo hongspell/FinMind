@@ -1,0 +1,368 @@
+# ============================================================
+# FinanceAI Pro - Full Stock Analysis Chain
+# 完整股票分析链配置
+# ============================================================
+
+name: "FullStockAnalysis"
+version: "1.0.0"
+description: "对单只股票进行全面深度分析，涵盖估值、基本面、技术面、情绪和风险评估"
+
+# ------------------------------------------------------------
+# 分析链 DAG（有向无环图）定义
+# ------------------------------------------------------------
+stages:
+  # ============ Stage 1: 数据收集（并行） ============
+  - name: "data_collection"
+    description: "收集所有需要的数据"
+    parallel: true
+    timeout: 30
+    tasks:
+      - name: "fetch_market_data"
+        agent: "DataCollector"
+        action: "fetch_market_data"
+        params:
+          include_historical: true
+          lookback_days: 365
+        output_key: "market_data"
+        retry:
+          max_attempts: 3
+          backoff: "exponential"
+        
+      - name: "fetch_financials"
+        agent: "DataCollector"
+        action: "fetch_financials"
+        params:
+          include_quarterly: true
+          years: 5
+        output_key: "financial_data"
+        retry:
+          max_attempts: 3
+          backoff: "exponential"
+        
+      - name: "fetch_news"
+        agent: "DataCollector"
+        action: "fetch_news"
+        params:
+          lookback_days: 30
+          sources: ["reuters", "bloomberg", "wsj", "sec_filings"]
+          include_social: true
+        output_key: "news_data"
+        
+      - name: "fetch_analyst_data"
+        agent: "DataCollector"
+        action: "fetch_analyst_data"
+        params:
+          include_estimates: true
+          include_ratings: true
+        output_key: "analyst_data"
+
+  # ============ Stage 2: 初步分析（并行） ============
+  - name: "initial_analysis"
+    description: "初步分析各个维度"
+    parallel: true
+    depends_on: ["data_collection"]
+    timeout: 60
+    tasks:
+      - name: "macro_analysis"
+        agent: "MacroAgent"
+        action: "analyze_environment"
+        inputs: 
+          - "market_data"
+        output_key: "macro_view"
+        
+      - name: "technical_analysis"
+        agent: "TechnicalAgent"
+        action: "analyze_price_action"
+        inputs:
+          - "market_data"
+        params:
+          indicators: ["ma", "rsi", "macd", "bollinger", "volume"]
+          timeframes: ["daily", "weekly", "monthly"]
+        output_key: "technical_view"
+        
+      - name: "sentiment_analysis"
+        agent: "SentimentAgent"
+        action: "analyze_sentiment"
+        inputs:
+          - "news_data"
+        params:
+          include_social_sentiment: true
+          entity_extraction: true
+        output_key: "sentiment_view"
+        
+      - name: "peer_comparison"
+        agent: "SectorAgent"
+        action: "compare_with_peers"
+        inputs:
+          - "financial_data"
+          - "market_data"
+        output_key: "peer_view"
+
+  # ============ Stage 3: 深度分析（并行） ============
+  - name: "deep_analysis"
+    description: "深度分析核心维度"
+    parallel: true
+    depends_on: ["initial_analysis"]
+    timeout: 90
+    tasks:
+      - name: "valuation_analysis"
+        agent: "ValuationAgent"
+        action: "comprehensive_valuation"
+        inputs:
+          - "financial_data"
+          - "market_data"
+          - "macro_view"
+          - "peer_view"
+          - "analyst_data"
+        params:
+          methods: ["dcf", "comparables", "historical"]
+          include_sensitivity: true
+          scenarios: ["bull", "base", "bear"]
+        output_key: "valuation_view"
+        
+      - name: "fundamental_analysis"
+        agent: "EarningsAgent"
+        action: "analyze_fundamentals"
+        inputs:
+          - "financial_data"
+          - "analyst_data"
+        params:
+          focus_areas: 
+            - "revenue_quality"
+            - "margin_sustainability"
+            - "cash_flow_quality"
+            - "balance_sheet_health"
+            - "capital_allocation"
+        output_key: "fundamental_view"
+        
+      - name: "competitive_analysis"
+        agent: "SectorAgent"
+        action: "analyze_competitive_position"
+        inputs:
+          - "financial_data"
+          - "news_data"
+          - "peer_view"
+        output_key: "competitive_view"
+
+  # ============ Stage 4: 风险评估（需要所有分析结果） ============
+  - name: "risk_assessment"
+    description: "综合风险评估"
+    parallel: false
+    depends_on: ["deep_analysis"]
+    timeout: 60
+    tasks:
+      - name: "comprehensive_risk"
+        agent: "RiskAgent"
+        action: "comprehensive_risk_assessment"
+        inputs:
+          - "valuation_view"
+          - "fundamental_view"
+          - "technical_view"
+          - "sentiment_view"
+          - "macro_view"
+          - "competitive_view"
+        params:
+          risk_categories:
+            - "valuation_risk"
+            - "business_risk"
+            - "financial_risk"
+            - "market_risk"
+            - "regulatory_risk"
+            - "esg_risk"
+          stress_test_scenarios:
+            - "recession"
+            - "rate_hike"
+            - "sector_downturn"
+        output_key: "risk_view"
+
+  # ============ Stage 5: 策略综合 ============
+  - name: "strategy_synthesis"
+    description: "综合所有分析形成投资建议"
+    parallel: false
+    depends_on: ["risk_assessment"]
+    timeout: 60
+    tasks:
+      - name: "synthesize_recommendation"
+        agent: "StrategyAgent"
+        action: "synthesize_recommendation"
+        inputs:
+          - "valuation_view"
+          - "fundamental_view"
+          - "technical_view"
+          - "sentiment_view"
+          - "risk_view"
+          - "macro_view"
+          - "competitive_view"
+          - "peer_view"
+        params:
+          output_style: "comprehensive"
+          include_action_plan: true
+          time_horizons: ["short_term", "medium_term", "long_term"]
+        output_key: "final_recommendation"
+
+# ------------------------------------------------------------
+# 冲突解决策略
+# ------------------------------------------------------------
+conflict_resolution:
+  method: "weighted_vote"
+  weights:
+    ValuationAgent: 0.25
+    EarningsAgent: 0.25
+    TechnicalAgent: 0.10
+    SentimentAgent: 0.10
+    RiskAgent: 0.20
+    MacroAgent: 0.10
+  
+  # 分歧处理
+  disagreement_handling:
+    threshold: 0.3  # 当 Agent 间分歧超过此阈值时触发
+    action: "highlight_and_explain"
+    
+  # 特殊规则
+  override_rules:
+    - condition: "risk_view.overall_risk == 'critical'"
+      action: "cap_recommendation_at_neutral"
+    - condition: "valuation_view.confidence < 0.4"
+      action: "add_low_confidence_warning"
+
+# ------------------------------------------------------------
+# 输出配置
+# ------------------------------------------------------------
+output:
+  format: "structured_report"
+  
+  sections:
+    - name: "executive_summary"
+      description: "执行摘要"
+      max_length: 500
+      sources: ["final_recommendation"]
+      
+    - name: "investment_thesis"
+      description: "投资论点"
+      sources: ["valuation_view", "fundamental_view", "competitive_view"]
+      
+    - name: "valuation_analysis"
+      description: "估值分析"
+      sources: ["valuation_view"]
+      include_charts: ["football_field", "sensitivity_heatmap"]
+      
+    - name: "fundamental_analysis"
+      description: "基本面分析"
+      sources: ["fundamental_view", "competitive_view"]
+      
+    - name: "technical_analysis"
+      description: "技术面分析"
+      sources: ["technical_view"]
+      include_charts: ["price_chart", "indicator_panel"]
+      
+    - name: "sentiment_analysis"
+      description: "市场情绪分析"
+      sources: ["sentiment_view", "news_data"]
+      
+    - name: "risk_assessment"
+      description: "风险评估"
+      sources: ["risk_view"]
+      include_charts: ["risk_matrix", "scenario_analysis"]
+      
+    - name: "recommendation"
+      description: "投资建议"
+      sources: ["final_recommendation"]
+      
+    - name: "appendix"
+      description: "附录"
+      include:
+        - "data_sources"
+        - "methodology_notes"
+        - "key_assumptions"
+        - "model_parameters"
+  
+  # 必须的免责声明
+  required_disclaimers:
+    - type: "investment_risk"
+      text: "本报告仅供参考，不构成投资建议。投资有风险，入市需谨慎。"
+      
+    - type: "data_limitations"
+      text: "本报告基于公开可得数据，数据质量和时效性可能影响分析结论。"
+      
+    - type: "ai_limitations"
+      text: "本报告由 AI 系统生成，可能存在错误或遗漏，请结合专业判断使用。"
+      
+    - type: "forward_looking"
+      text: "本报告包含前瞻性陈述，实际结果可能与预测存在重大差异。"
+
+# ------------------------------------------------------------
+# 质量门控
+# ------------------------------------------------------------
+quality_gates:
+  - name: "data_completeness"
+    description: "检查数据完整性"
+    threshold: 0.7
+    action: "warn"
+    message: "关键数据缺失，分析结论可能不完整"
+    
+  - name: "agent_agreement"
+    description: "检查 Agent 间一致性"
+    threshold: 0.5
+    action: "highlight_disagreement"
+    message: "不同分析维度存在显著分歧"
+    
+  - name: "confidence_score"
+    description: "检查整体置信度"
+    threshold: 0.4
+    action: "add_low_confidence_warning"
+    message: "整体分析置信度较低，建议补充更多数据"
+    
+  - name: "data_freshness"
+    description: "检查数据时效性"
+    threshold_days: 7
+    action: "warn"
+    message: "部分数据可能已过时"
+
+# ------------------------------------------------------------
+# 超时配置
+# ------------------------------------------------------------
+timeouts:
+  stage_timeout: 90      # 单阶段超时（秒）
+  total_timeout: 420     # 总超时（7分钟）
+  task_timeout: 45       # 单任务超时（秒）
+
+# ------------------------------------------------------------
+# 重试策略
+# ------------------------------------------------------------
+retry:
+  max_retries: 2
+  backoff: "exponential"
+  initial_delay: 1
+  max_delay: 10
+  
+  # 特定错误处理
+  error_handling:
+    - error_type: "rate_limit"
+      action: "wait_and_retry"
+      wait_time: 30
+    - error_type: "timeout"
+      action: "retry_with_simpler_request"
+    - error_type: "data_unavailable"
+      action: "skip_and_note"
+
+# ------------------------------------------------------------
+# 缓存配置
+# ------------------------------------------------------------
+caching:
+  enabled: true
+  
+  # 不同数据类型的缓存时间
+  ttl:
+    market_data: 300        # 5分钟
+    financial_data: 86400   # 1天
+    news_data: 3600         # 1小时
+    analyst_data: 43200     # 12小时
+    
+  # 分析结果缓存
+  analysis_cache:
+    enabled: true
+    ttl: 3600               # 1小时
+    invalidation_triggers:
+      - "new_financial_release"
+      - "major_news_event"
+      - "price_change > 5%"

@@ -1,0 +1,360 @@
+# Technical Analysis Agent 配置
+# 版本: 1.0.0
+
+version: "1.0.0"
+agent_name: "technical_agent"
+agent_type: "analysis"
+
+# =============================================================================
+# Agent人设
+# =============================================================================
+persona:
+  role: "资深技术分析师"
+  experience: "15年技术分析经验，CFA & CMT持证"
+  style: "数据驱动，注重概率思维"
+  principles:
+    - "技术分析是概率游戏，不是确定性预测"
+    - "趋势是朋友，直到它结束"
+    - "多时间框架验证提高可靠性"
+    - "成交量是价格的领先指标"
+    - "风险管理优先于收益追求"
+
+# =============================================================================
+# 能力配置
+# =============================================================================
+capabilities:
+  trend_analysis:
+    enabled: true
+    methods:
+      - "moving_average_crossover"
+      - "higher_highs_higher_lows"
+      - "trendline_analysis"
+      - "channel_identification"
+    timeframes: ["daily", "weekly", "monthly"]
+    
+  indicator_analysis:
+    enabled: true
+    indicators:
+      momentum:
+        - name: "RSI"
+          period: 14
+          overbought: 70
+          oversold: 30
+        - name: "MACD"
+          fast: 12
+          slow: 26
+          signal: 9
+        - name: "Stochastic"
+          k_period: 14
+          d_period: 3
+          
+      trend:
+        - name: "SMA"
+          periods: [20, 50, 200]
+        - name: "EMA"
+          periods: [12, 26, 50]
+        - name: "ADX"
+          period: 14
+          strong_trend: 25
+          
+      volatility:
+        - name: "Bollinger_Bands"
+          period: 20
+          std_dev: 2
+        - name: "ATR"
+          period: 14
+        - name: "VIX_correlation"
+          enabled: true
+          
+      volume:
+        - name: "OBV"
+          enabled: true
+        - name: "Volume_MA"
+          period: 20
+        - name: "VWAP"
+          enabled: true
+          
+  pattern_recognition:
+    enabled: true
+    patterns:
+      reversal:
+        - "head_and_shoulders"
+        - "inverse_head_and_shoulders"
+        - "double_top"
+        - "double_bottom"
+        - "triple_top"
+        - "triple_bottom"
+      continuation:
+        - "flag"
+        - "pennant"
+        - "wedge"
+        - "triangle_ascending"
+        - "triangle_descending"
+        - "triangle_symmetrical"
+      candlestick:
+        - "doji"
+        - "hammer"
+        - "engulfing"
+        - "morning_star"
+        - "evening_star"
+        - "three_white_soldiers"
+        - "three_black_crows"
+        
+  support_resistance:
+    enabled: true
+    methods:
+      - "swing_highs_lows"
+      - "fibonacci_retracement"
+      - "pivot_points"
+      - "volume_profile"
+    fibonacci_levels: [0.236, 0.382, 0.5, 0.618, 0.786]
+
+# =============================================================================
+# LLM配置
+# =============================================================================
+llm_config:
+  preferred_model: "claude-sonnet"
+  fallback_model: "gpt-4o"
+  temperature: 0.2  # 技术分析需要更确定性的输出
+  
+  task_routing:
+    pattern_interpretation:
+      model: "claude-sonnet"
+      temperature: 0.3
+    signal_synthesis:
+      model: "claude-sonnet"
+      temperature: 0.2
+    risk_assessment:
+      model: "gpt-4o"
+      temperature: 0.2
+
+# =============================================================================
+# 护栏规则
+# =============================================================================
+guardrails:
+  rules:
+    - id: "no_prediction_certainty"
+      description: "不给出确定性预测，只给概率和情景"
+      action: "reframe_as_probability"
+      
+    - id: "require_multiple_confirmation"
+      description: "单一指标不足以形成结论"
+      min_confirming_signals: 2
+      
+    - id: "respect_timeframe"
+      description: "短期信号不能用于长期预测"
+      action: "match_signal_to_horizon"
+      
+    - id: "acknowledge_limitations"
+      description: "承认技术分析的局限性"
+      triggers:
+        - "earnings_approaching"
+        - "major_news_expected"
+        - "low_liquidity"
+        
+    - id: "risk_first"
+      description: "每个建议必须包含止损位"
+      required_elements:
+        - "stop_loss_level"
+        - "risk_reward_ratio"
+        
+  prohibited_statements:
+    - "股价一定会..."
+    - "100%会上涨/下跌"
+    - "不可能跌破..."
+    - "保证盈利"
+    - "稳赚不赔"
+
+# =============================================================================
+# 信号权重
+# =============================================================================
+signal_weights:
+  trend_alignment:
+    description: "与主趋势一致"
+    weight: 0.25
+    
+  momentum_confirmation:
+    description: "动量指标确认"
+    weight: 0.20
+    
+  volume_confirmation:
+    description: "成交量确认"
+    weight: 0.15
+    
+  pattern_quality:
+    description: "形态质量"
+    weight: 0.15
+    
+  support_resistance:
+    description: "支撑阻力位置"
+    weight: 0.15
+    
+  multi_timeframe:
+    description: "多时间框架一致性"
+    weight: 0.10
+
+# =============================================================================
+# 输出配置
+# =============================================================================
+output_config:
+  sections:
+    - name: "trend_summary"
+      required: true
+      content:
+        - "primary_trend"
+        - "trend_strength"
+        - "key_levels"
+        
+    - name: "technical_indicators"
+      required: true
+      content:
+        - "momentum_reading"
+        - "trend_indicators"
+        - "volatility_assessment"
+        
+    - name: "pattern_analysis"
+      required: false
+      content:
+        - "identified_patterns"
+        - "pattern_targets"
+        - "confirmation_levels"
+        
+    - name: "trading_signals"
+      required: true
+      content:
+        - "signal_direction"
+        - "entry_zone"
+        - "stop_loss"
+        - "take_profit_levels"
+        - "risk_reward_ratio"
+        
+    - name: "risk_assessment"
+      required: true
+      content:
+        - "key_risks"
+        - "invalidation_levels"
+        - "position_sizing_suggestion"
+
+  visualizations:
+    - type: "price_chart"
+      indicators: ["SMA_50", "SMA_200", "Volume"]
+      annotations: ["support", "resistance", "patterns"]
+      
+    - type: "indicator_panel"
+      indicators: ["RSI", "MACD"]
+      
+    - type: "signal_summary"
+      format: "dashboard"
+
+# =============================================================================
+# 置信度因子
+# =============================================================================
+confidence_factors:
+  data_quality:
+    weight: 0.20
+    factors:
+      - "data_freshness"
+      - "data_completeness"
+      - "no_gaps"
+      
+  signal_strength:
+    weight: 0.25
+    factors:
+      - "indicator_alignment"
+      - "volume_confirmation"
+      - "pattern_clarity"
+      
+  trend_clarity:
+    weight: 0.20
+    factors:
+      - "trend_definition"
+      - "volatility_level"
+      - "noise_ratio"
+      
+  timeframe_agreement:
+    weight: 0.20
+    factors:
+      - "daily_weekly_alignment"
+      - "weekly_monthly_alignment"
+      
+  historical_reliability:
+    weight: 0.15
+    factors:
+      - "pattern_success_rate"
+      - "indicator_reliability"
+
+# =============================================================================
+# 警告条件
+# =============================================================================
+warnings:
+  - condition: "rsi > 80"
+    message: "RSI处于极度超买区域，回调风险增加"
+    severity: "medium"
+    
+  - condition: "rsi < 20"
+    message: "RSI处于极度超卖区域，可能存在反弹机会"
+    severity: "medium"
+    
+  - condition: "price > bb_upper * 1.02"
+    message: "价格显著突破布林带上轨，注意回归风险"
+    severity: "medium"
+    
+  - condition: "volume < avg_volume * 0.5"
+    message: "成交量显著萎缩，突破/下跌可靠性降低"
+    severity: "high"
+    
+  - condition: "divergence_detected"
+    message: "价格与指标出现背离，趋势可能反转"
+    severity: "high"
+    
+  - condition: "death_cross"
+    message: "出现死叉信号(MA50下穿MA200)，长期趋势转弱"
+    severity: "high"
+    
+  - condition: "golden_cross"
+    message: "出现金叉信号(MA50上穿MA200)，长期趋势转强"
+    severity: "medium"
+    
+  - condition: "earnings_within_7_days"
+    message: "财报即将发布，技术信号可靠性降低"
+    severity: "high"
+
+# =============================================================================
+# 提示词模板
+# =============================================================================
+prompts:
+  trend_analysis: |
+    分析 {symbol} 的价格趋势:
+    
+    当前价格: {current_price}
+    50日均线: {sma_50}
+    200日均线: {sma_200}
+    52周高点: {high_52w}
+    52周低点: {low_52w}
+    
+    请提供:
+    1. 主趋势判断 (上升/下降/横盘)
+    2. 趋势强度 (强/中/弱)
+    3. 关键支撑位和阻力位
+    4. 趋势延续的概率评估
+    
+    注意: 使用概率语言，避免确定性预测。
+
+  signal_synthesis: |
+    综合以下技术信号生成交易建议:
+    
+    趋势信号: {trend_signals}
+    动量信号: {momentum_signals}
+    成交量信号: {volume_signals}
+    形态信号: {pattern_signals}
+    
+    请提供:
+    1. 综合信号方向 (看多/看空/中性)
+    2. 信号强度 (1-10)
+    3. 建议入场区间
+    4. 止损位置 (附理由)
+    5. 目标位置 (附理由)
+    6. 风险收益比
+    7. 建议持仓周期
+    
+    重要: 每个建议必须包含风险管理参数。
