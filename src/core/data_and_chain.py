@@ -12,6 +12,14 @@ import yaml
 import json
 from pathlib import Path
 
+# Extended hours support
+from src.core.market_hours import (
+    MarketStatusDetector,
+    ExtendedHoursPriceCalculator,
+    MarketSession,
+    get_market_status_summary
+)
+
 
 # ============== 数据提供者基础 ==============
 
@@ -166,16 +174,64 @@ class YFinanceProvider(DataProvider):
 
             elif data_type == "current_price":
                 info = ticker.info
+
+                # Get regular market price
+                regular_price = info.get('currentPrice') or info.get('regularMarketPrice')
+
+                # Get extended hours prices
+                pre_market_price = info.get('preMarketPrice')
+                post_market_price = info.get('postMarketPrice')
+                pre_market_volume = info.get('preMarketVolume')
+                post_market_volume = info.get('postMarketVolume')
+                regular_volume = info.get('volume') or info.get('regularMarketVolume')
+
+                # Calculate weighted price based on current session
+                price_calculator = ExtendedHoursPriceCalculator()
+                extended_price = price_calculator.calculate_weighted_price(
+                    regular_price=regular_price,
+                    pre_market_price=pre_market_price,
+                    after_hours_price=post_market_price,
+                    pre_market_volume=pre_market_volume,
+                    after_hours_volume=post_market_volume,
+                    regular_volume=regular_volume
+                )
+
                 data = {
-                    'current_price': info.get('currentPrice') or info.get('regularMarketPrice'),
+                    # Primary price (weighted based on session)
+                    'current_price': extended_price.weighted_price,
+                    'regular_price': regular_price,
+
+                    # Extended hours data
+                    'pre_market_price': pre_market_price,
+                    'post_market_price': post_market_price,
+                    'pre_market_volume': pre_market_volume,
+                    'post_market_volume': post_market_volume,
+
+                    # Price source metadata
+                    'price_source': extended_price.price_source,
+                    'market_session': extended_price.session.value,
+                    'price_confidence': extended_price.confidence,
+                    'market_status': get_market_status_summary(),
+
+                    # Standard market data
                     'market_cap': info.get('marketCap'),
                     'pe_ratio': info.get('trailingPE'),
                     'forward_pe': info.get('forwardPE'),
                     'dividend_yield': info.get('dividendYield'),
                     'fifty_two_week_high': info.get('fiftyTwoWeekHigh'),
                     'fifty_two_week_low': info.get('fiftyTwoWeekLow'),
-                    'volume': info.get('volume'),
+                    'volume': regular_volume,
                     'avg_volume': info.get('averageVolume'),
+
+                    # Additional useful fields
+                    'previous_close': info.get('previousClose') or info.get('regularMarketPreviousClose'),
+                    'open_price': info.get('open') or info.get('regularMarketOpen'),
+                    'day_high': info.get('dayHigh') or info.get('regularMarketDayHigh'),
+                    'day_low': info.get('dayLow') or info.get('regularMarketDayLow'),
+                    'bid': info.get('bid'),
+                    'ask': info.get('ask'),
+                    'bid_size': info.get('bidSize'),
+                    'ask_size': info.get('askSize'),
                 }
                 quality = DataQuality.HIGH
 
@@ -638,15 +694,52 @@ class SimpleDataCollector:
         return self._cache[symbol]
 
     async def fetch_market_data(self, context, inputs: Dict = None) -> Dict:
-        """获取市场数据，返回估值模型需要的格式"""
+        """获取市场数据，返回估值模型需要的格式（包含扩展交易时段数据）"""
         target = context.target if hasattr(context, 'target') else str(context)
         try:
             ticker = self._get_ticker(target)
             info = ticker.info
             hist = ticker.history(period='1y')
 
+            # Get regular market price
+            regular_price = info.get('currentPrice') or info.get('regularMarketPrice', 0)
+
+            # Get extended hours prices
+            pre_market_price = info.get('preMarketPrice')
+            post_market_price = info.get('postMarketPrice')
+            pre_market_volume = info.get('preMarketVolume')
+            post_market_volume = info.get('postMarketVolume')
+            regular_volume = info.get('volume') or info.get('regularMarketVolume')
+
+            # Calculate weighted price based on current session
+            price_calculator = ExtendedHoursPriceCalculator()
+            extended_price = price_calculator.calculate_weighted_price(
+                regular_price=regular_price,
+                pre_market_price=pre_market_price,
+                after_hours_price=post_market_price,
+                pre_market_volume=pre_market_volume,
+                after_hours_volume=post_market_volume,
+                regular_volume=regular_volume
+            )
+
             return {
-                'current_price': info.get('currentPrice') or info.get('regularMarketPrice', 0),
+                # Primary price (weighted based on session)
+                'current_price': extended_price.weighted_price,
+                'regular_price': regular_price,
+
+                # Extended hours data
+                'pre_market_price': pre_market_price,
+                'post_market_price': post_market_price,
+                'pre_market_volume': pre_market_volume,
+                'post_market_volume': post_market_volume,
+
+                # Price source metadata
+                'price_source': extended_price.price_source,
+                'market_session': extended_price.session.value,
+                'price_confidence': extended_price.confidence,
+                'market_status': get_market_status_summary(),
+
+                # Standard market data
                 'market_cap': info.get('marketCap', 0),
                 'pe_ratio': info.get('trailingPE'),
                 'forward_pe': info.get('forwardPE'),
@@ -655,8 +748,16 @@ class SimpleDataCollector:
                 'dividend_yield': info.get('dividendYield'),
                 'fifty_two_week_high': info.get('fiftyTwoWeekHigh'),
                 'fifty_two_week_low': info.get('fiftyTwoWeekLow'),
+                'volume': regular_volume,
                 'avg_volume': info.get('averageVolume'),
                 'beta': info.get('beta', 1.0),
+
+                # Additional price info
+                'previous_close': info.get('previousClose') or info.get('regularMarketPreviousClose'),
+                'open_price': info.get('open') or info.get('regularMarketOpen'),
+                'day_high': info.get('dayHigh') or info.get('regularMarketDayHigh'),
+                'day_low': info.get('dayLow') or info.get('regularMarketDayLow'),
+
                 # 历史价格数据
                 'price_history': {
                     'close': hist['Close'].tolist() if not hist.empty else [],

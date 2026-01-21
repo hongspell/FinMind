@@ -35,6 +35,14 @@ from .data_and_chain import (
     AnalysisResult
 )
 
+from .market_hours import (
+    MarketStatusDetector,
+    ExtendedHoursPriceCalculator,
+    MarketSession,
+    ExtendedPrice,
+    get_market_status_summary
+)
+
 __all__ = [
     # Base classes
     "AgentOutput",
@@ -45,12 +53,12 @@ __all__ = [
     "DataSource",
     "Uncertainty",
     "BaseAgent",
-    
+
     # Config
     "ConfigLoader",
     "ConfigValidator",
     "ValidationError",
-    
+
     # Data & Chain
     "DataProvider",
     "DataProviderRegistry",
@@ -59,5 +67,12 @@ __all__ = [
     "NewsProvider",
     "ChainExecutor",
     "FinanceAI",
-    "AnalysisResult"
+    "AnalysisResult",
+
+    # Market Hours
+    "MarketStatusDetector",
+    "ExtendedHoursPriceCalculator",
+    "MarketSession",
+    "ExtendedPrice",
+    "get_market_status_summary"
 ]

@@ -27,6 +27,26 @@ class SignalStrength(Enum):
     STRONG_SELL = "strong_sell"
 
 
+class Timeframe(Enum):
+    """时间框架"""
+    SHORT_TERM = "short_term"      # 短期: 1-2周
+    MEDIUM_TERM = "medium_term"    # 中期: 1-3月
+    LONG_TERM = "long_term"        # 长期: 3-12月
+
+
+@dataclass
+class TimeframeAnalysis:
+    """单个时间框架的分析结果"""
+    timeframe: Timeframe
+    timeframe_label: str           # 显示名称，如"短期(1-2周)"
+    signal: SignalStrength
+    trend: TrendDirection
+    trend_strength: float          # 0-1
+    confidence: float              # 0-1
+    key_indicators: List[str]      # 该时间框架的关键指标描述
+    description: str               # 分析描述
+
+
 @dataclass
 class TechnicalIndicator:
     """技术指标结果"""
@@ -58,38 +78,41 @@ class PatternMatch:
     description: str = ""
 
 
-@dataclass 
+@dataclass
 class TechnicalAnalysisResult:
     """技术分析结果"""
     symbol: str
     timestamp: datetime
     current_price: float
-    
-    # 趋势分析
+
+    # 趋势分析（综合）
     trend: TrendDirection
     trend_strength: float  # 0-1
-    
+
     # 技术指标
     indicators: List[TechnicalIndicator]
-    
+
     # 支撑阻力
     support_levels: List[SupportResistance]
     resistance_levels: List[SupportResistance]
-    
+
     # 形态识别
     patterns: List[PatternMatch]
-    
+
     # 综合信号
     overall_signal: SignalStrength
     signal_confidence: float
-    
+
+    # 多时间框架分析
+    timeframe_analyses: List[TimeframeAnalysis] = field(default_factory=list)
+
     # 关键价位
-    key_levels: Dict[str, float]
-    
+    key_levels: Dict[str, float] = field(default_factory=dict)
+
     # 分析描述
-    summary: str
-    key_observations: List[str]
-    warnings: List[str]
+    summary: str = ""
+    key_observations: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
 
 
 class TechnicalCalculator:
@@ -497,15 +520,18 @@ class TechnicalAgent:
         
         # 综合信号
         overall_signal, signal_confidence = self._calculate_overall_signal(indicators, trend, patterns)
-        
+
+        # 多时间框架分析
+        timeframe_analyses = self._analyze_timeframes(closes, highs, lows, volumes)
+
         # 关键价位
         key_levels = self._identify_key_levels(current_price, support_levels, resistance_levels, indicators)
-        
+
         # 生成分析摘要
         summary, observations, warnings = self._generate_analysis_summary(
             symbol, current_price, trend, indicators, patterns, support_levels, resistance_levels
         )
-        
+
         return TechnicalAnalysisResult(
             symbol=symbol,
             timestamp=datetime.now(),
@@ -518,6 +544,7 @@ class TechnicalAgent:
             patterns=patterns,
             overall_signal=overall_signal,
             signal_confidence=signal_confidence,
+            timeframe_analyses=timeframe_analyses,
             key_levels=key_levels,
             summary=summary,
             key_observations=observations,
@@ -968,19 +995,530 @@ class TechnicalAgent:
         else:
             signal = SignalStrength.NEUTRAL
         
-        # 信心度基于指标一致性
-        if indicators:
-            signal_counts = {}
-            for ind in indicators:
-                signal_counts[ind.signal] = signal_counts.get(ind.signal, 0) + ind.weight
-            
+        # 信心度基于所有信号源的一致性（指标 + 趋势 + 形态）
+        signal_counts = {}
+
+        # 统计指标信号
+        for ind in indicators:
+            signal_counts[ind.signal] = signal_counts.get(ind.signal, 0) + ind.weight
+
+        # 统计趋势信号（将TrendDirection映射到SignalStrength）
+        trend_to_signal = {
+            TrendDirection.STRONG_BULLISH: SignalStrength.STRONG_BUY,
+            TrendDirection.BULLISH: SignalStrength.BUY,
+            TrendDirection.NEUTRAL: SignalStrength.NEUTRAL,
+            TrendDirection.BEARISH: SignalStrength.SELL,
+            TrendDirection.STRONG_BEARISH: SignalStrength.STRONG_SELL
+        }
+        trend_signal = trend_to_signal[trend]
+        signal_counts[trend_signal] = signal_counts.get(trend_signal, 0) + 2
+
+        # 统计形态信号
+        for pattern in patterns:
+            pattern_signal = trend_to_signal.get(pattern.direction, SignalStrength.NEUTRAL)
+            pattern_weight = pattern.confidence * 1.5
+            signal_counts[pattern_signal] = signal_counts.get(pattern_signal, 0) + pattern_weight
+
+        # 计算信号一致性置信度 - 考虑精确匹配和方向性一致
+        if signal_counts:
+            # 1. 精确信号一致性
             max_weight = max(signal_counts.values())
-            confidence = max_weight / total_weight if total_weight > 0 else 0.5
+            exact_consistency = max_weight / total_weight if total_weight > 0 else 0.5
+
+            # 2. 方向性一致性（看涨 vs 看跌 vs 中性）
+            bullish_weight = signal_counts.get(SignalStrength.STRONG_BUY, 0) + signal_counts.get(SignalStrength.BUY, 0)
+            bearish_weight = signal_counts.get(SignalStrength.STRONG_SELL, 0) + signal_counts.get(SignalStrength.SELL, 0)
+            neutral_weight = signal_counts.get(SignalStrength.NEUTRAL, 0)
+
+            direction_weights = [bullish_weight, bearish_weight, neutral_weight]
+            max_direction_weight = max(direction_weights)
+            direction_consistency = max_direction_weight / total_weight if total_weight > 0 else 0.5
+
+            # 3. 综合置信度：方向一致性更重要（权重60%），精确一致性次之（权重40%）
+            combined_consistency = direction_consistency * 0.6 + exact_consistency * 0.4
+
+            # 4. 检查计算出的信号是否与主导方向一致
+            strongest_signal = max(signal_counts, key=signal_counts.get)
+            is_bullish_signal = signal in [SignalStrength.STRONG_BUY, SignalStrength.BUY]
+            is_bearish_signal = signal in [SignalStrength.STRONG_SELL, SignalStrength.SELL]
+            dominant_direction_is_bullish = bullish_weight == max_direction_weight
+            dominant_direction_is_bearish = bearish_weight == max_direction_weight
+
+            direction_match = (
+                (is_bullish_signal and dominant_direction_is_bullish) or
+                (is_bearish_signal and dominant_direction_is_bearish) or
+                (signal == SignalStrength.NEUTRAL and neutral_weight == max_direction_weight)
+            )
+
+            if direction_match and strongest_signal == signal:
+                # 完美一致：方向+精确信号都匹配
+                confidence = combined_consistency * 0.65 + 0.35
+            elif direction_match:
+                # 方向一致但信号强度不同
+                confidence = combined_consistency * 0.6 + 0.3
+            else:
+                # 方向不一致（边界情况，信号可能在切换）
+                confidence = combined_consistency * 0.5 + 0.2
         else:
             confidence = 0.5
-        
-        return signal, min(confidence, 0.9)
-    
+
+        return signal, min(confidence, 0.95)
+
+    def _analyze_timeframes(
+        self,
+        closes: List[float],
+        highs: List[float],
+        lows: List[float],
+        volumes: List[float]
+    ) -> List[TimeframeAnalysis]:
+        """
+        分析多个时间框架的技术信号
+        - 短期 (1-2周): 基于5日、10日、20日数据
+        - 中期 (1-3月): 基于20日、50日数据
+        - 长期 (3-12月): 基于50日、200日数据
+        """
+        timeframe_results = []
+        calc = self.calculator
+        current = closes[-1] if closes else 0
+
+        # ========== 短期分析 (1-2周) ==========
+        short_term = self._analyze_short_term(closes, highs, lows, calc, current)
+        timeframe_results.append(short_term)
+
+        # ========== 中期分析 (1-3月) ==========
+        medium_term = self._analyze_medium_term(closes, highs, lows, calc, current)
+        timeframe_results.append(medium_term)
+
+        # ========== 长期分析 (3-12月) ==========
+        long_term = self._analyze_long_term(closes, highs, lows, calc, current)
+        timeframe_results.append(long_term)
+
+        return timeframe_results
+
+    def _analyze_short_term(
+        self,
+        closes: List[float],
+        highs: List[float],
+        lows: List[float],
+        calc: 'TechnicalCalculator',
+        current: float
+    ) -> TimeframeAnalysis:
+        """短期分析 (1-2周)"""
+        key_indicators = []
+        signals = []
+        weights = []
+
+        # 1. 5日与10日均线关系
+        sma_5 = calc.sma(closes, 5)
+        sma_10 = calc.sma(closes, 10)
+        sma_20 = calc.sma(closes, 20)
+
+        if sma_5 and sma_10:
+            if sma_5 > sma_10:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append("5日均线在10日均线之上")
+            else:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append("5日均线在10日均线之下")
+            weights.append(1.5)
+
+        # 2. 价格与20日均线
+        if sma_20:
+            if current > sma_20 * 1.02:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"价格高于20日均线 {((current/sma_20-1)*100):.1f}%")
+            elif current < sma_20 * 0.98:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"价格低于20日均线 {((1-current/sma_20)*100):.1f}%")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+                key_indicators.append("价格接近20日均线")
+            weights.append(1.2)
+
+        # 3. RSI(7) 短期超买超卖
+        rsi_7 = calc.rsi(closes, 7)
+        if rsi_7 is not None:
+            if rsi_7 > 75:
+                signals.append(SignalStrength.STRONG_SELL)
+                key_indicators.append(f"RSI(7)={rsi_7:.0f} 严重超买")
+            elif rsi_7 > 65:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"RSI(7)={rsi_7:.0f} 超买")
+            elif rsi_7 < 25:
+                signals.append(SignalStrength.STRONG_BUY)
+                key_indicators.append(f"RSI(7)={rsi_7:.0f} 严重超卖")
+            elif rsi_7 < 35:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"RSI(7)={rsi_7:.0f} 超卖")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+            weights.append(1.3)
+
+        # 4. 最近5天价格变化
+        if len(closes) >= 5:
+            change_5d = (closes[-1] - closes[-5]) / closes[-5]
+            if change_5d > 0.05:
+                signals.append(SignalStrength.STRONG_BUY)
+                key_indicators.append(f"5日涨幅 +{change_5d*100:.1f}%")
+            elif change_5d > 0.02:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"5日涨幅 +{change_5d*100:.1f}%")
+            elif change_5d < -0.05:
+                signals.append(SignalStrength.STRONG_SELL)
+                key_indicators.append(f"5日跌幅 {change_5d*100:.1f}%")
+            elif change_5d < -0.02:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"5日跌幅 {change_5d*100:.1f}%")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+            weights.append(1.0)
+
+        # 5. Stochastic 随机指标
+        stoch = calc.stochastic(closes, highs, lows)
+        if stoch:
+            k = stoch.get('k', 50)
+            if k > 80:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"随机指标K={k:.0f} 超买")
+            elif k < 20:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"随机指标K={k:.0f} 超卖")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+            weights.append(1.0)
+
+        # 计算综合信号和置信度
+        signal, trend, confidence = self._calculate_timeframe_signal(signals, weights)
+
+        return TimeframeAnalysis(
+            timeframe=Timeframe.SHORT_TERM,
+            timeframe_label="短期 (1-2周)",
+            signal=signal,
+            trend=trend,
+            trend_strength=confidence,
+            confidence=confidence,
+            key_indicators=key_indicators[:4],  # 最多显示4个关键指标
+            description=self._generate_timeframe_description(signal, trend, "短期")
+        )
+
+    def _analyze_medium_term(
+        self,
+        closes: List[float],
+        highs: List[float],
+        lows: List[float],
+        calc: 'TechnicalCalculator',
+        current: float
+    ) -> TimeframeAnalysis:
+        """中期分析 (1-3月)"""
+        key_indicators = []
+        signals = []
+        weights = []
+
+        sma_20 = calc.sma(closes, 20)
+        sma_50 = calc.sma(closes, 50)
+
+        # 1. 20日与50日均线关系
+        if sma_20 and sma_50:
+            if sma_20 > sma_50:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append("20日均线在50日均线之上")
+            else:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append("20日均线在50日均线之下")
+            weights.append(2.0)
+
+        # 2. 价格与50日均线
+        if sma_50:
+            diff_pct = (current / sma_50 - 1) * 100
+            if current > sma_50 * 1.05:
+                signals.append(SignalStrength.STRONG_BUY)
+                key_indicators.append(f"价格高于50日均线 +{diff_pct:.1f}%")
+            elif current > sma_50:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"价格高于50日均线 +{diff_pct:.1f}%")
+            elif current < sma_50 * 0.95:
+                signals.append(SignalStrength.STRONG_SELL)
+                key_indicators.append(f"价格低于50日均线 {diff_pct:.1f}%")
+            else:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"价格低于50日均线 {diff_pct:.1f}%")
+            weights.append(1.5)
+
+        # 3. RSI(14) 标准周期
+        rsi_14 = calc.rsi(closes, 14)
+        if rsi_14 is not None:
+            if rsi_14 > 70:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"RSI(14)={rsi_14:.0f} 超买")
+            elif rsi_14 < 30:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"RSI(14)={rsi_14:.0f} 超卖")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+                key_indicators.append(f"RSI(14)={rsi_14:.0f} 中性")
+            weights.append(1.3)
+
+        # 4. MACD
+        macd = calc.macd(closes)
+        if macd and macd.get("histogram") is not None:
+            hist = macd["histogram"]
+            macd_line = macd.get("macd", 0)
+            signal_line = macd.get("signal", 0)
+
+            if hist > 0 and macd_line > signal_line:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append("MACD金叉，动能向上")
+            elif hist < 0 and macd_line < signal_line:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append("MACD死叉，动能向下")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+            weights.append(1.5)
+
+        # 5. 20日价格变化
+        if len(closes) >= 20:
+            change_20d = (closes[-1] - closes[-20]) / closes[-20]
+            if change_20d > 0.1:
+                signals.append(SignalStrength.STRONG_BUY)
+                key_indicators.append(f"20日涨幅 +{change_20d*100:.1f}%")
+            elif change_20d > 0.03:
+                signals.append(SignalStrength.BUY)
+            elif change_20d < -0.1:
+                signals.append(SignalStrength.STRONG_SELL)
+                key_indicators.append(f"20日跌幅 {change_20d*100:.1f}%")
+            elif change_20d < -0.03:
+                signals.append(SignalStrength.SELL)
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+            weights.append(1.0)
+
+        # 6. ADX 趋势强度
+        adx = calc.adx(highs, lows, closes)
+        if adx:
+            adx_value = adx.get('adx', 0)
+            plus_di = adx.get('plus_di', 0)
+            minus_di = adx.get('minus_di', 0)
+
+            if adx_value > 25:  # 有明显趋势
+                if plus_di > minus_di:
+                    signals.append(SignalStrength.BUY)
+                    key_indicators.append(f"ADX={adx_value:.0f} 上升趋势")
+                else:
+                    signals.append(SignalStrength.SELL)
+                    key_indicators.append(f"ADX={adx_value:.0f} 下降趋势")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+                key_indicators.append(f"ADX={adx_value:.0f} 趋势不明")
+            weights.append(1.2)
+
+        signal, trend, confidence = self._calculate_timeframe_signal(signals, weights)
+
+        return TimeframeAnalysis(
+            timeframe=Timeframe.MEDIUM_TERM,
+            timeframe_label="中期 (1-3月)",
+            signal=signal,
+            trend=trend,
+            trend_strength=confidence,
+            confidence=confidence,
+            key_indicators=key_indicators[:4],
+            description=self._generate_timeframe_description(signal, trend, "中期")
+        )
+
+    def _analyze_long_term(
+        self,
+        closes: List[float],
+        highs: List[float],
+        lows: List[float],
+        calc: 'TechnicalCalculator',
+        current: float
+    ) -> TimeframeAnalysis:
+        """长期分析 (3-12月)"""
+        key_indicators = []
+        signals = []
+        weights = []
+
+        sma_50 = calc.sma(closes, 50)
+        sma_200 = calc.sma(closes, 200)
+
+        # 1. 金叉/死叉 (50日 vs 200日)
+        if sma_50 and sma_200:
+            if sma_50 > sma_200:
+                signals.append(SignalStrength.STRONG_BUY)
+                key_indicators.append("金叉：50日均线在200日均线之上")
+                weights.append(2.5)
+            else:
+                signals.append(SignalStrength.STRONG_SELL)
+                key_indicators.append("死叉：50日均线在200日均线之下")
+                weights.append(2.5)
+
+        # 2. 价格与200日均线
+        if sma_200:
+            diff_pct = (current / sma_200 - 1) * 100
+            if current > sma_200 * 1.1:
+                signals.append(SignalStrength.STRONG_BUY)
+                key_indicators.append(f"价格远高于200日均线 +{diff_pct:.1f}%")
+            elif current > sma_200:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"价格高于200日均线 +{diff_pct:.1f}%")
+            elif current < sma_200 * 0.9:
+                signals.append(SignalStrength.STRONG_SELL)
+                key_indicators.append(f"价格远低于200日均线 {diff_pct:.1f}%")
+            else:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"价格低于200日均线 {diff_pct:.1f}%")
+            weights.append(2.0)
+
+        # 3. 50日价格变化
+        if len(closes) >= 50:
+            change_50d = (closes[-1] - closes[-50]) / closes[-50]
+            if change_50d > 0.15:
+                signals.append(SignalStrength.STRONG_BUY)
+                key_indicators.append(f"50日涨幅 +{change_50d*100:.1f}%")
+            elif change_50d > 0.05:
+                signals.append(SignalStrength.BUY)
+                key_indicators.append(f"50日涨幅 +{change_50d*100:.1f}%")
+            elif change_50d < -0.15:
+                signals.append(SignalStrength.STRONG_SELL)
+                key_indicators.append(f"50日跌幅 {change_50d*100:.1f}%")
+            elif change_50d < -0.05:
+                signals.append(SignalStrength.SELL)
+                key_indicators.append(f"50日跌幅 {change_50d*100:.1f}%")
+            else:
+                signals.append(SignalStrength.NEUTRAL)
+            weights.append(1.5)
+
+        # 4. 200日趋势（200日均线斜率）
+        if len(closes) >= 220 and sma_200:
+            sma_200_20_days_ago = calc.sma(closes[:-20], 200)
+            if sma_200_20_days_ago:
+                slope = (sma_200 - sma_200_20_days_ago) / sma_200_20_days_ago
+                if slope > 0.02:
+                    signals.append(SignalStrength.BUY)
+                    key_indicators.append("200日均线上升趋势")
+                elif slope < -0.02:
+                    signals.append(SignalStrength.SELL)
+                    key_indicators.append("200日均线下降趋势")
+                else:
+                    signals.append(SignalStrength.NEUTRAL)
+                    key_indicators.append("200日均线走平")
+                weights.append(1.5)
+
+        # 5. 距离52周高低点
+        if len(closes) >= 252:
+            high_52w = max(highs[-252:]) if highs else current
+            low_52w = min(lows[-252:]) if lows else current
+            range_52w = high_52w - low_52w
+
+            if range_52w > 0:
+                position = (current - low_52w) / range_52w
+                if position > 0.8:
+                    signals.append(SignalStrength.BUY)
+                    key_indicators.append(f"接近52周高点 (位置: {position*100:.0f}%)")
+                elif position < 0.2:
+                    signals.append(SignalStrength.SELL)
+                    key_indicators.append(f"接近52周低点 (位置: {position*100:.0f}%)")
+                else:
+                    signals.append(SignalStrength.NEUTRAL)
+                weights.append(1.0)
+
+        signal, trend, confidence = self._calculate_timeframe_signal(signals, weights)
+
+        return TimeframeAnalysis(
+            timeframe=Timeframe.LONG_TERM,
+            timeframe_label="长期 (3-12月)",
+            signal=signal,
+            trend=trend,
+            trend_strength=confidence,
+            confidence=confidence,
+            key_indicators=key_indicators[:4],
+            description=self._generate_timeframe_description(signal, trend, "长期")
+        )
+
+    def _calculate_timeframe_signal(
+        self,
+        signals: List[SignalStrength],
+        weights: List[float]
+    ) -> Tuple[SignalStrength, TrendDirection, float]:
+        """计算单个时间框架的综合信号、趋势和置信度"""
+        if not signals:
+            return SignalStrength.NEUTRAL, TrendDirection.NEUTRAL, 0.5
+
+        signal_scores = {
+            SignalStrength.STRONG_BUY: 2,
+            SignalStrength.BUY: 1,
+            SignalStrength.NEUTRAL: 0,
+            SignalStrength.SELL: -1,
+            SignalStrength.STRONG_SELL: -2
+        }
+
+        # 计算加权得分
+        total_weight = sum(weights)
+        weighted_score = sum(signal_scores[s] * w for s, w in zip(signals, weights))
+        avg_score = weighted_score / total_weight if total_weight > 0 else 0
+
+        # 确定信号
+        if avg_score >= 1.2:
+            signal = SignalStrength.STRONG_BUY
+        elif avg_score >= 0.4:
+            signal = SignalStrength.BUY
+        elif avg_score <= -1.2:
+            signal = SignalStrength.STRONG_SELL
+        elif avg_score <= -0.4:
+            signal = SignalStrength.SELL
+        else:
+            signal = SignalStrength.NEUTRAL
+
+        # 确定趋势
+        if avg_score >= 1.0:
+            trend = TrendDirection.STRONG_BULLISH
+        elif avg_score >= 0.3:
+            trend = TrendDirection.BULLISH
+        elif avg_score <= -1.0:
+            trend = TrendDirection.STRONG_BEARISH
+        elif avg_score <= -0.3:
+            trend = TrendDirection.BEARISH
+        else:
+            trend = TrendDirection.NEUTRAL
+
+        # 计算置信度（基于信号一致性）
+        bullish_count = sum(1 for s in signals if s in [SignalStrength.STRONG_BUY, SignalStrength.BUY])
+        bearish_count = sum(1 for s in signals if s in [SignalStrength.STRONG_SELL, SignalStrength.SELL])
+        neutral_count = sum(1 for s in signals if s == SignalStrength.NEUTRAL)
+
+        max_count = max(bullish_count, bearish_count, neutral_count)
+        consistency = max_count / len(signals) if signals else 0.5
+
+        # 置信度 = 一致性 * 0.6 + 基础分 0.3 + 信号强度奖励
+        strength_bonus = 0.1 if signal in [SignalStrength.STRONG_BUY, SignalStrength.STRONG_SELL] else 0
+        confidence = min(0.95, consistency * 0.6 + 0.3 + strength_bonus)
+
+        return signal, trend, confidence
+
+    def _generate_timeframe_description(
+        self,
+        signal: SignalStrength,
+        trend: TrendDirection,
+        timeframe_name: str
+    ) -> str:
+        """生成时间框架描述"""
+        signal_desc = {
+            SignalStrength.STRONG_BUY: "强烈看涨",
+            SignalStrength.BUY: "看涨",
+            SignalStrength.NEUTRAL: "中性",
+            SignalStrength.SELL: "看跌",
+            SignalStrength.STRONG_SELL: "强烈看跌"
+        }
+
+        trend_desc = {
+            TrendDirection.STRONG_BULLISH: "强势上涨",
+            TrendDirection.BULLISH: "温和上涨",
+            TrendDirection.NEUTRAL: "横盘震荡",
+            TrendDirection.BEARISH: "温和下跌",
+            TrendDirection.STRONG_BEARISH: "强势下跌"
+        }
+
+        return f"{timeframe_name}技术面{signal_desc[signal]}，趋势呈{trend_desc[trend]}态势"
+
     def _identify_key_levels(
         self,
         current_price: float,

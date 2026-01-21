@@ -521,6 +521,10 @@ class ReportGenerator:
                 'resistance': getattr(tech, 'resistance_levels', []),
             }
 
+            # Extract timeframe analyses if available
+            if hasattr(tech, 'timeframe_analyses'):
+                data['timeframe_analyses'] = tech.timeframe_analyses
+
             # Extract technical indicators if available
             if hasattr(tech, 'indicators'):
                 data['indicators'] = tech.indicators
@@ -567,8 +571,20 @@ class ReportGenerator:
         mcap_str = format_number(mcap, '$') if mcap else "N/A"
         pe_str = f"{pe:.2f}" if pe else "N/A"
 
+        # Market status and price source (extended hours support)
+        market_status = md.get('market_status')
+        price_source = md.get('price_source')
+
+        if market_status:
+            lines.append("")
+            lines.append(f"  {market_status}")
+
         lines.append("")
         lines.append(f"  {self.t('current_price')}: {price_str}    {self.t('market_cap')}: {mcap_str}    {self.t('pe_ratio')}: {pe_str}")
+
+        # Show price source if available (pre-market, after-hours, etc.)
+        if price_source and 'Weighted' in price_source:
+            lines.append(f"  📊 {price_source}")
 
         # 52-week position
         high_52w = md.get('fifty_two_week_high')
@@ -595,6 +611,27 @@ class ReportGenerator:
                 conf_pct = f"{conf:.1%}" if conf < 1 else f"{conf:.1f}%"
                 conf_interp = get_confidence_interpretation(conf if conf < 1 else conf/100, self.lang)
                 lines.append(f"    {self.t('confidence')}: {conf_pct} ({conf_interp})")
+
+        # Multi-Timeframe Analysis
+        timeframe_analyses = data.get('timeframe_analyses', [])
+        if timeframe_analyses:
+            lines.append("")
+            tf_header = "多时间框架分析:" if self.lang == 'zh' else "Multi-Timeframe Analysis:"
+            lines.append(f"  {tf_header}")
+
+            # Table header
+            if self.lang == 'zh':
+                lines.append(f"    {'时间框架':<14} {'信号':<10} {'趋势':<12} {'置信度':<8}")
+            else:
+                lines.append(f"    {'Timeframe':<14} {'Signal':<10} {'Trend':<12} {'Conf.':<8}")
+            lines.append(f"    {'-'*14} {'-'*10} {'-'*12} {'-'*8}")
+
+            for tf in timeframe_analyses:
+                label = tf.timeframe_label if hasattr(tf, 'timeframe_label') else str(tf.timeframe.value)
+                signal_str = translate_signal(tf.signal, self.lang)
+                trend_str = translate_trend(tf.trend, self.lang)
+                conf_str = f"{tf.confidence:.0%}"
+                lines.append(f"    {label:<14} {signal_str:<10} {trend_str:<12} {conf_str:<8}")
 
         # Risk Assessment
         risk = data['risk']
@@ -650,6 +687,45 @@ class ReportGenerator:
         if md:
             lines.append(f"## {self.t('market_data')}")
             lines.append("")
+
+            # Market Status (Extended Hours Support)
+            market_status = md.get('market_status')
+            price_source = md.get('price_source')
+            market_session = md.get('market_session')
+
+            if market_status:
+                lines.append(f"> **Market Status**: {market_status}")
+                lines.append("")
+
+            if price_source and 'Weighted' in price_source:
+                lines.append(f"> 📊 **Price Source**: {price_source}")
+                lines.append("")
+
+            # Extended Hours Prices (if available)
+            pre_market = md.get('pre_market_price')
+            post_market = md.get('post_market_price')
+            regular_price = md.get('regular_price')
+
+            if pre_market or post_market:
+                lines.append("### Extended Hours Trading")
+                lines.append("")
+                lines.append("| Session | Price | Volume |")
+                lines.append("|:--------|------:|-------:|")
+                if regular_price:
+                    vol = md.get('volume')
+                    vol_str = format_number(vol) if vol else 'N/A'
+                    lines.append(f"| Regular Close | {format_price(regular_price)} | {vol_str} |")
+                if pre_market:
+                    vol = md.get('pre_market_volume')
+                    vol_str = format_number(vol) if vol else 'N/A'
+                    change = ((pre_market - regular_price) / regular_price * 100) if regular_price else 0
+                    lines.append(f"| Pre-Market | {format_price(pre_market)} ({change:+.2f}%) | {vol_str} |")
+                if post_market:
+                    vol = md.get('post_market_volume')
+                    vol_str = format_number(vol) if vol else 'N/A'
+                    change = ((post_market - regular_price) / regular_price * 100) if regular_price else 0
+                    lines.append(f"| After-Hours | {format_price(post_market)} ({change:+.2f}%) | {vol_str} |")
+                lines.append("")
 
             # Price and Valuation Table
             lines.append("### Price & Valuation Metrics")
@@ -741,6 +817,39 @@ class ReportGenerator:
                 lines.append(f"| **{self.t('confidence')}** | {conf_pct} | {conf_interp} |")
 
             lines.append("")
+
+            # Multi-Timeframe Analysis
+            timeframe_analyses = data.get('timeframe_analyses', [])
+            if timeframe_analyses:
+                tf_title = "### 多时间框架分析" if self.lang == 'zh' else "### Multi-Timeframe Analysis"
+                lines.append(tf_title)
+                lines.append("")
+
+                if self.lang == 'zh':
+                    lines.append("| 时间框架 | 信号 | 趋势 | 置信度 | 关键指标 |")
+                else:
+                    lines.append("| Timeframe | Signal | Trend | Confidence | Key Indicators |")
+                lines.append("|:----------|:------:|:----:|:---------:|:---------------|")
+
+                for tf in timeframe_analyses:
+                    label = tf.timeframe_label if hasattr(tf, 'timeframe_label') else str(tf.timeframe.value)
+                    signal_str = translate_signal(tf.signal, self.lang)
+                    trend_str = translate_trend(tf.trend, self.lang)
+                    conf_str = f"{tf.confidence:.0%}"
+                    indicators = tf.key_indicators[:2] if hasattr(tf, 'key_indicators') else []
+                    indicators_str = "; ".join(indicators) if indicators else "-"
+                    lines.append(f"| {label} | {signal_str} | {trend_str} | {conf_str} | {indicators_str} |")
+
+                lines.append("")
+
+                # Add timeframe descriptions
+                desc_title = "**分析说明：**" if self.lang == 'zh' else "**Analysis Notes:**"
+                lines.append(desc_title)
+                lines.append("")
+                for tf in timeframe_analyses:
+                    if hasattr(tf, 'description') and tf.description:
+                        lines.append(f"- {tf.description}")
+                lines.append("")
 
             # Support/Resistance
             if tech.get('support') or tech.get('resistance'):

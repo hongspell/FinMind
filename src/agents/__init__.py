@@ -13,7 +13,13 @@ FinMind - Agents模块
 """
 
 from .valuation_agent import ValuationAgent
-from .technical_agent import TechnicalAgent
+from .technical_agent import (
+    TechnicalAgent,
+    Timeframe,
+    TimeframeAnalysis,
+    TrendDirection,
+    SignalStrength
+)
 from .earnings_agent import EarningsAgent
 from .sentiment_risk_agent import SentimentAgent, RiskAgent
 from .strategy_agent import StrategyAgent
@@ -23,6 +29,10 @@ from .sector_agent import SectorAgent
 __all__ = [
     "ValuationAgent",
     "TechnicalAgent",
+    "Timeframe",
+    "TimeframeAnalysis",
+    "TrendDirection",
+    "SignalStrength",
     "EarningsAgent",
     "SentimentAgent",
     "RiskAgent",
