@@ -246,6 +246,45 @@ class PortfolioSummary:
         }
 
 
+class TradeAction(str, Enum):
+    """交易动作"""
+    BUY = "buy"
+    SELL = "sell"
+
+
+@dataclass
+class Trade:
+    """交易记录"""
+    symbol: str                              # 股票代码
+    market: Market                           # 市场
+    action: TradeAction                      # 买入/卖出
+    quantity: float                          # 数量
+    price: float                             # 成交价格
+    commission: float = 0.0                  # 佣金
+    currency: Currency = Currency.USD        # 货币
+    trade_time: Optional[datetime] = None    # 成交时间
+    order_id: Optional[str] = None           # 订单ID
+    execution_id: Optional[str] = None       # 成交ID
+    realized_pnl: Optional[float] = None     # 实现盈亏（卖出时）
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "symbol": self.symbol,
+            "market": self.market.value,
+            "action": self.action.value,
+            "quantity": self.quantity,
+            "price": self.price,
+            "commission": self.commission,
+            "currency": self.currency.value,
+            "trade_time": self.trade_time.isoformat() if self.trade_time else None,
+            "order_id": self.order_id,
+            "execution_id": self.execution_id,
+            "realized_pnl": self.realized_pnl,
+            "total_value": self.quantity * self.price,
+        }
+
+
 # =============================================================================
 # 抽象基类
 # =============================================================================
@@ -374,6 +413,19 @@ class BrokerAdapter(ABC):
             positions=positions,
             last_updated=datetime.now(),
         )
+
+    async def get_trades(self, days: int = 7) -> List['Trade']:
+        """
+        获取交易历史
+
+        Args:
+            days: 获取最近多少天的交易记录，默认7天
+
+        Returns:
+            List[Trade]: 交易记录列表
+        """
+        # 默认返回空列表，子类可以覆盖实现
+        return []
 
     # -------------------------------------------------------------------------
     # 上下文管理器

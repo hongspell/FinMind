@@ -62,6 +62,11 @@ export const brokerApi = {
     return api.get(`/broker/positions/${brokerType}`);
   },
 
+  // 获取交易历史
+  getTrades: async (brokerType: BrokerType, days: number = 7): Promise<any> => {
+    return api.get(`/broker/trades/${brokerType}`, { params: { days } });
+  },
+
   // 获取统一投资组合
   getUnifiedPortfolio: async (): Promise<ApiResponse<UnifiedPortfolio>> => {
     return api.get('/broker/unified');

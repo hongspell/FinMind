@@ -71,6 +71,22 @@ class PositionResponse(BaseModel):
     sector: Optional[str] = None
 
 
+class TradeResponse(BaseModel):
+    """交易记录响应"""
+    symbol: str
+    market: str
+    action: str  # buy/sell
+    quantity: float
+    price: float
+    total_value: float
+    commission: float = 0.0
+    currency: str
+    trade_time: Optional[str] = None
+    order_id: Optional[str] = None
+    execution_id: Optional[str] = None
+    realized_pnl: Optional[float] = None
+
+
 class AccountBalanceResponse(BaseModel):
     """账户余额响应"""
     total_assets: float
@@ -312,6 +328,49 @@ async def get_positions(
                 sector=p.sector,
             )
             for p in positions
+        ]
+    except BrokerError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/trades/{broker_type}", response_model=List[TradeResponse], summary="获取交易历史")
+async def get_trades(
+    broker_type: str,
+    days: int = 7,
+    portfolio: UnifiedPortfolio = Depends(get_portfolio),
+):
+    """
+    获取指定券商的交易历史
+
+    - days: 获取最近多少天的交易记录，默认7天
+    """
+    broker_type = broker_type.lower()
+    adapter = portfolio._adapters.get(broker_type)
+
+    if not adapter:
+        raise HTTPException(status_code=404, detail=f"Broker not found: {broker_type}")
+
+    if not adapter.is_connected:
+        raise HTTPException(status_code=400, detail=f"Broker not connected: {broker_type}")
+
+    try:
+        trades = await adapter.get_trades(days)
+        return [
+            TradeResponse(
+                symbol=t.symbol,
+                market=t.market.value,
+                action=t.action.value,
+                quantity=t.quantity,
+                price=t.price,
+                total_value=t.quantity * t.price,
+                commission=t.commission,
+                currency=t.currency.value,
+                trade_time=t.trade_time.isoformat() if t.trade_time else None,
+                order_id=t.order_id,
+                execution_id=t.execution_id,
+                realized_pnl=t.realized_pnl,
+            )
+            for t in trades
         ]
     except BrokerError as e:
         raise HTTPException(status_code=500, detail=str(e))

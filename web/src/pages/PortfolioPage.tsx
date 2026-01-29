@@ -25,12 +25,13 @@ import {
   CheckCircleOutlined,
   InfoCircleOutlined,
   SettingOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useSettingsStore } from '../stores/settingsStore';
 import { brokerApi, portfolioApi } from '../services/brokerApi';
-import type { UnifiedPortfolio, Position, PortfolioAnalysis, BrokerType } from '../types/broker';
+import type { UnifiedPortfolio, PortfolioAnalysis, Trade } from '../types/broker';
 
 const { Title, Text } = Typography;
 
@@ -73,6 +74,8 @@ const PortfolioPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [portfolio, setPortfolio] = useState<UnifiedPortfolio | null>(null);
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // 主题颜色
@@ -105,8 +108,45 @@ const PortfolioPage: React.FC = () => {
     }
   };
 
+  // 加载交易历史
+  const loadTrades = async (days: number = 7) => {
+    setTradesLoading(true);
+    try {
+      // 获取所有已连接的券商
+      const statusRes = await brokerApi.getStatus().catch(() => null);
+      const connectedBrokers = (statusRes as any)?.brokers?.filter((b: any) => b.connected) || [];
+
+      // 从所有已连接券商获取交易历史
+      const allTrades: Trade[] = [];
+      for (const broker of connectedBrokers) {
+        try {
+          const tradesRes = await brokerApi.getTrades(broker.broker_type, days);
+          if (Array.isArray(tradesRes)) {
+            allTrades.push(...tradesRes);
+          }
+        } catch (err) {
+          console.error(`Failed to load trades from ${broker.broker_type}:`, err);
+        }
+      }
+
+      // 按交易时间排序（最新在前）
+      allTrades.sort((a, b) => {
+        const timeA = a.trade_time ? new Date(a.trade_time).getTime() : 0;
+        const timeB = b.trade_time ? new Date(b.trade_time).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      setTrades(allTrades);
+    } catch (err) {
+      console.error('Failed to load trades:', err);
+    } finally {
+      setTradesLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
+    loadTrades();
   }, []);
 
   // 持仓表格列 - 匹配 API 返回的 top_holdings 结构
@@ -240,6 +280,79 @@ const PortfolioPage: React.FC = () => {
       dataIndex: 'reason',
       key: 'reason',
       ellipsis: true,
+    },
+  ], [isZh, navigate]);
+
+  // 交易历史表格列
+  const tradeColumns = useMemo(() => [
+    {
+      title: isZh ? '时间' : 'Time',
+      dataIndex: 'trade_time',
+      key: 'trade_time',
+      width: 160,
+      render: (val: string) => val ? new Date(val).toLocaleString() : '-',
+    },
+    {
+      title: isZh ? '股票' : 'Symbol',
+      dataIndex: 'symbol',
+      key: 'symbol',
+      render: (symbol: string) => (
+        <Button type="link" size="small" onClick={() => navigate(`/analysis/${symbol}`)}>
+          {symbol}
+        </Button>
+      ),
+    },
+    {
+      title: isZh ? '操作' : 'Action',
+      dataIndex: 'action',
+      key: 'action',
+      render: (action: string) => (
+        <Tag color={action === 'buy' ? 'success' : 'error'}>
+          {action === 'buy' ? (isZh ? '买入' : 'BUY') : (isZh ? '卖出' : 'SELL')}
+        </Tag>
+      ),
+    },
+    {
+      title: isZh ? '数量' : 'Quantity',
+      dataIndex: 'quantity',
+      key: 'quantity',
+      align: 'right' as const,
+      render: (val: number) => val?.toLocaleString() || '-',
+    },
+    {
+      title: isZh ? '价格' : 'Price',
+      dataIndex: 'price',
+      key: 'price',
+      align: 'right' as const,
+      render: (val: number) => val ? `$${val.toFixed(2)}` : '-',
+    },
+    {
+      title: isZh ? '金额' : 'Total',
+      dataIndex: 'total_value',
+      key: 'total_value',
+      align: 'right' as const,
+      render: (val: number) => val ? `$${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-',
+    },
+    {
+      title: isZh ? '佣金' : 'Commission',
+      dataIndex: 'commission',
+      key: 'commission',
+      align: 'right' as const,
+      render: (val: number) => val ? `$${val.toFixed(2)}` : '-',
+    },
+    {
+      title: isZh ? '已实现盈亏' : 'Realized P&L',
+      dataIndex: 'realized_pnl',
+      key: 'realized_pnl',
+      align: 'right' as const,
+      render: (val: number | null) => {
+        if (val === null || val === undefined) return '-';
+        return (
+          <Text style={{ color: val >= 0 ? '#52c41a' : '#ff4d4f' }}>
+            {val >= 0 ? '+' : ''}{val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+        );
+      },
     },
   ], [isZh, navigate]);
 
@@ -607,6 +720,49 @@ const PortfolioPage: React.FC = () => {
           size="small"
           scroll={{ x: 800 }}
         />
+      </Card>
+
+      {/* Trade History */}
+      <Card
+        title={
+          <Space>
+            <SwapOutlined />
+            <span>{isZh ? '交易历史' : 'Trade History'}</span>
+            <Tag>{trades.length}</Tag>
+          </Space>
+        }
+        size="small"
+        style={{ marginBottom: 24 }}
+        extra={
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            loading={tradesLoading}
+            onClick={() => loadTrades()}
+          >
+            {isZh ? '刷新' : 'Refresh'}
+          </Button>
+        }
+      >
+        {tradesLoading ? (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            <Spin />
+          </div>
+        ) : trades.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={isZh ? '暂无交易记录' : 'No trade history'}
+          />
+        ) : (
+          <Table
+            dataSource={trades}
+            columns={tradeColumns}
+            rowKey={(record, index) => `${record.execution_id || record.order_id || index}`}
+            pagination={{ pageSize: 10, showSizeChanger: true }}
+            size="small"
+            scroll={{ x: 900 }}
+          />
+        )}
       </Card>
 
       {/* Recommendations */}

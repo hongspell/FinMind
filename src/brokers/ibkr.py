@@ -31,6 +31,8 @@ from .base import (
     Position,
     AccountBalance,
     PortfolioSummary,
+    Trade,
+    TradeAction,
     BrokerError,
     AuthenticationError,
     ConnectionError,
@@ -268,58 +270,101 @@ class IBKRAdapter(BrokerAdapter):
         if not self._connected or not self._ib:
             raise BrokerError("Not connected to IBKR")
 
-        # 获取持仓
-        ib_positions = self._ib.positions(self._account_id)
         positions = []
 
-        for pos in ib_positions:
-            contract = pos.contract
-            symbol = contract.symbol
+        # 使用 portfolio() 获取持仓 - 它包含实时市值和盈亏
+        # portfolio() 返回 PortfolioItem 列表，包含 marketValue, unrealizedPNL 等
+        try:
+            portfolio_items = self._ib.portfolio(self._account_id)
+            logger.info(f"Found {len(portfolio_items)} portfolio items")
 
-            # 确定市场
-            market = self._get_market(contract.exchange, contract.currency)
+            for item in portfolio_items:
+                contract = item.contract
+                symbol = contract.symbol
 
-            # 确定货币
-            currency = Currency.USD
-            if contract.currency == "HKD":
-                currency = Currency.HKD
-            elif contract.currency == "CNY":
-                currency = Currency.CNY
+                # 跳过非股票/ETF类型（如期权、期货等）
+                if contract.secType not in ('STK', 'ETF'):
+                    continue
 
-            # 获取当前价格（使用市场数据）
-            current_price = pos.avgCost  # 默认使用成本
-            try:
-                ticker = self._ib.reqMktData(contract, snapshot=True)
-                self._ib.sleep(0.5)  # 等待数据
-                if ticker.last and ticker.last > 0:
-                    current_price = ticker.last
-                elif ticker.close and ticker.close > 0:
-                    current_price = ticker.close
-                self._ib.cancelMktData(contract)
-            except Exception:
-                pass  # 使用成本作为当前价格
+                # 确定市场
+                market = self._get_market(contract.exchange, contract.currency)
 
-            # 计算盈亏
-            quantity = pos.position
-            avg_cost = pos.avgCost
-            market_value = quantity * current_price
-            unrealized_pnl = market_value - (quantity * avg_cost)
-            unrealized_pnl_percent = (unrealized_pnl / (quantity * avg_cost) * 100) if avg_cost > 0 else 0
+                # 确定货币
+                currency = Currency.USD
+                if contract.currency == "HKD":
+                    currency = Currency.HKD
+                elif contract.currency == "CNY":
+                    currency = Currency.CNY
 
-            positions.append(Position(
-                symbol=symbol,
-                market=market,
-                quantity=abs(quantity),
-                avg_cost=avg_cost,
-                current_price=current_price,
-                market_value=abs(market_value),
-                unrealized_pnl=unrealized_pnl,
-                unrealized_pnl_percent=unrealized_pnl_percent,
-                side=PositionSide.LONG if quantity > 0 else PositionSide.SHORT,
-                currency=currency,
-                company_name=contract.localSymbol or symbol,
-                last_updated=datetime.now(),
-            ))
+                # 从 portfolio item 获取数据（IBKR 直接提供）
+                quantity = item.position
+                avg_cost = item.averageCost
+                market_value = item.marketValue
+                unrealized_pnl = item.unrealizedPNL
+
+                # 计算当前价格
+                if quantity != 0:
+                    current_price = market_value / quantity
+                else:
+                    current_price = avg_cost
+
+                # 计算盈亏百分比
+                cost_basis = abs(quantity * avg_cost)
+                unrealized_pnl_percent = (unrealized_pnl / cost_basis * 100) if cost_basis > 0 else 0
+
+                positions.append(Position(
+                    symbol=symbol,
+                    market=market,
+                    quantity=abs(quantity),
+                    avg_cost=avg_cost,
+                    current_price=current_price,
+                    market_value=abs(market_value),
+                    unrealized_pnl=unrealized_pnl,
+                    unrealized_pnl_percent=unrealized_pnl_percent,
+                    side=PositionSide.LONG if quantity > 0 else PositionSide.SHORT,
+                    currency=currency,
+                    company_name=contract.localSymbol or symbol,
+                    last_updated=datetime.now(),
+                ))
+
+            logger.info(f"Processed {len(positions)} stock/ETF positions")
+
+        except Exception as e:
+            logger.error(f"Error fetching portfolio: {e}")
+            # 回退到 positions() 方法
+            ib_positions = self._ib.positions()  # 不传 account 获取所有持仓
+            logger.info(f"Fallback: Found {len(ib_positions)} positions")
+
+            for pos in ib_positions:
+                contract = pos.contract
+                if contract.secType not in ('STK', 'ETF'):
+                    continue
+
+                symbol = contract.symbol
+                market = self._get_market(contract.exchange, contract.currency)
+                currency = Currency.USD
+                if contract.currency == "HKD":
+                    currency = Currency.HKD
+                elif contract.currency == "CNY":
+                    currency = Currency.CNY
+
+                quantity = pos.position
+                avg_cost = pos.avgCost
+
+                positions.append(Position(
+                    symbol=symbol,
+                    market=market,
+                    quantity=abs(quantity),
+                    avg_cost=avg_cost,
+                    current_price=avg_cost,  # 无法获取实时价格
+                    market_value=abs(quantity * avg_cost),
+                    unrealized_pnl=0,
+                    unrealized_pnl_percent=0,
+                    side=PositionSide.LONG if quantity > 0 else PositionSide.SHORT,
+                    currency=currency,
+                    company_name=contract.localSymbol or symbol,
+                    last_updated=datetime.now(),
+                ))
 
         return positions
 
@@ -349,6 +394,85 @@ class IBKRAdapter(BrokerAdapter):
 
         # 默认美股
         return Market.US
+
+    def _get_trades_sync(self, days: int = 7) -> List[Trade]:
+        """同步获取交易历史"""
+        if not self._connected or not self._ib:
+            raise BrokerError("Not connected to IBKR")
+
+        trades = []
+
+        try:
+            # 使用 fills() 获取成交记录 - 返回 Fill 对象列表
+            fills = self._ib.fills()
+            logger.info(f"Found {len(fills)} fills")
+
+            for fill in fills:
+                contract = fill.contract
+                execution = fill.execution
+
+                # 只处理股票和ETF
+                if contract.secType not in ('STK', 'ETF'):
+                    continue
+
+                # 确定市场和货币
+                market = self._get_market(contract.exchange, contract.currency)
+                currency = Currency.USD
+                if contract.currency == "HKD":
+                    currency = Currency.HKD
+                elif contract.currency == "CNY":
+                    currency = Currency.CNY
+
+                # 确定交易方向
+                action = TradeAction.BUY if execution.side == 'BOT' else TradeAction.SELL
+
+                # 获取佣金和实现盈亏
+                commission = 0.0
+                realized_pnl = None
+                if fill.commissionReport:
+                    commission = fill.commissionReport.commission or 0.0
+                    realized_pnl = fill.commissionReport.realizedPNL
+
+                # 解析交易时间
+                trade_time = None
+                if execution.time:
+                    try:
+                        if isinstance(execution.time, datetime):
+                            trade_time = execution.time
+                        else:
+                            trade_time = datetime.fromisoformat(str(execution.time))
+                    except:
+                        pass
+
+                trades.append(Trade(
+                    symbol=contract.symbol,
+                    market=market,
+                    action=action,
+                    quantity=execution.shares,
+                    price=execution.price,
+                    commission=commission,
+                    currency=currency,
+                    trade_time=trade_time,
+                    order_id=str(execution.orderId) if execution.orderId else None,
+                    execution_id=execution.execId,
+                    realized_pnl=realized_pnl,
+                ))
+
+            # 按时间降序排列
+            trades.sort(key=lambda t: t.trade_time or datetime.min, reverse=True)
+            logger.info(f"Processed {len(trades)} stock/ETF trades")
+
+        except Exception as e:
+            logger.error(f"Error fetching trades: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+        return trades
+
+    async def get_trades(self, days: int = 7) -> List[Trade]:
+        """获取交易历史"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, lambda: self._get_trades_sync(days))
 
 
 # =============================================================================

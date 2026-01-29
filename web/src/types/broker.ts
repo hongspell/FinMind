@@ -37,6 +37,21 @@ export interface Position {
   broker?: BrokerType;
 }
 
+export interface Trade {
+  symbol: string;
+  market: string;
+  action: 'buy' | 'sell';
+  quantity: number;
+  price: number;
+  total_value: number;
+  commission: number;
+  currency: string;
+  trade_time?: string;
+  order_id?: string;
+  execution_id?: string;
+  realized_pnl?: number;
+}
+
 export interface AccountBalance {
   total_value: number;
   cash: number;
