@@ -1,22 +1,22 @@
 # FinMind Makefile
 # 简化常用开发命令
 
-.PHONY: help install dev test lint format clean docker-up docker-down serve
+.PHONY: help install dev test lint format clean docker-up docker-down serve web api
 
 # 默认目标
 help:
 	@echo "FinMind - 可用命令:"
 	@echo ""
-	@echo "  make install     - 安装依赖"
+	@echo "  make install     - 安装Python依赖"
 	@echo "  make dev         - 安装开发依赖"
+	@echo "  make web-install - 安装前端依赖"
+	@echo "  make web         - 启动前端开发服务器"
+	@echo "  make api         - 启动API服务器"
+	@echo "  make start       - 同时启动前端和API"
 	@echo "  make test        - 运行测试"
-	@echo "  make test-cov    - 运行测试并生成覆盖率报告"
 	@echo "  make lint        - 代码检查"
 	@echo "  make format      - 代码格式化"
 	@echo "  make clean       - 清理缓存文件"
-	@echo "  make docker-up   - 启动Docker服务"
-	@echo "  make docker-down - 停止Docker服务"
-	@echo "  make serve       - 启动API服务"
 	@echo "  make analyze     - 示例分析命令"
 
 # 安装生产依赖
@@ -68,13 +68,43 @@ docker-logs:
 docker-build:
 	docker-compose build
 
-# 启动API服务 (开发模式)
+# ============ 前端命令 ============
+
+# 安装前端依赖
+web-install:
+	cd web && npm install
+
+# 启动前端开发服务器
+web:
+	cd web && npm run dev
+
+# 构建前端
+web-build:
+	cd web && npm run build
+
+# ============ API命令 ============
+
+# 启动API服务器 (开发模式)
+api:
+	cd api && python main.py
+
+# 启动API服务 (开发模式) - 旧命令兼容
 serve:
 	python -m src.main serve --port 8000 --reload
 
 # 启动API服务 (生产模式)
 serve-prod:
-	uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
+	uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+# ============ 同时启动 ============
+
+# 同时启动前端和API (需要两个终端)
+start:
+	@echo "请在两个终端分别运行:"
+	@echo "  终端1: make api"
+	@echo "  终端2: make web"
+	@echo ""
+	@echo "或者运行: ./scripts/start-dev.sh"
 
 # 示例分析命令
 analyze:

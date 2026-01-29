@@ -1,0 +1,161 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "export": "Export Report",
+    "search": "Search",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "delete": "Delete"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "analysis": "Analysis",
+    "portfolio": "Portfolio",
+    "watchlist": "Watchlist",
+    "settings": "Settings",
+    "profile": "Profile",
+    "logout": "Logout"
+  },
+  "dashboard": {
+    "title": "AI-Powered Investment Analysis",
+    "subtitle": "Get comprehensive stock analysis with multi-timeframe technical signals, valuation models, and risk assessment powered by advanced AI.",
+    "searchPlaceholder": "Enter stock symbol (e.g., AAPL, TSLA, NVDA)",
+    "analyze": "Analyze",
+    "popularStocks": "Popular Stocks",
+    "recentSearches": "Recent Searches",
+    "noRecentSearches": "No recent searches",
+    "quickTips": "Quick Tips",
+    "tip1": "Use multi-timeframe analysis for better entry/exit points",
+    "tip2": "Higher confidence = stronger indicator agreement",
+    "tip3": "Check both technical and fundamental views",
+    "tip4": "Consider market session (pre/after hours)"
+  },
+  "analysis": {
+    "title": "{{symbol}} Analysis",
+    "lastUpdated": "Last updated",
+    "analyzing": "Analyzing {{symbol}}...",
+    "analyzingHint": "This may take 30-60 seconds",
+    "failed": "Analysis Failed",
+    "noData": "No Analysis Data",
+    "noDataHint": "Enter a stock symbol to begin analysis",
+    "priceChart": "{{symbol}} Price Chart",
+    "technicalOverview": "Technical Overview",
+    "overallSignal": "Overall Signal",
+    "trendDirection": "Trend Direction",
+    "signalConfidence": "Signal Confidence",
+    "supportLevels": "Support Levels",
+    "resistanceLevels": "Resistance Levels",
+    "multiTimeframe": "Multi-Timeframe Analysis",
+    "timeframe": "Timeframe",
+    "signal": "Signal",
+    "trend": "Trend",
+    "strength": "Strength",
+    "confidence": "Confidence",
+    "keyIndicators": "Key Indicators",
+    "description": "Description",
+    "exportSuccess": "Report exported successfully"
+  },
+  "signals": {
+    "strong_buy": "STRONG BUY",
+    "buy": "BUY",
+    "neutral": "NEUTRAL",
+    "sell": "SELL",
+    "strong_sell": "STRONG SELL"
+  },
+  "trends": {
+    "strong_bullish": "Strong Bullish",
+    "bullish": "Bullish",
+    "neutral": "Neutral",
+    "bearish": "Bearish",
+    "strong_bearish": "Strong Bearish"
+  },
+  "confidence": {
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+  "watchlist": {
+    "empty": "No stocks in watchlist",
+    "addHint": "Search for a stock and click the star icon to add it",
+    "added": "Added to watchlist",
+    "removed": "Removed from watchlist"
+  },
+  "settings": {
+    "language": "Language",
+    "displayLanguage": "Display Language",
+    "display": "Display",
+    "theme": "Theme",
+    "darkTheme": "Dark",
+    "lightTheme": "Light",
+    "themeHint": "Light theme coming soon",
+    "lightThemeHint": "Light theme applied (some components may need refresh)",
+    "lightThemeBeta": "Light theme is in beta, some areas may not display correctly",
+    "chartStyle": "Chart Style",
+    "candlestick": "Candlestick",
+    "line": "Line",
+    "area": "Area",
+    "notifications": "Notifications",
+    "priceAlerts": "Price Alerts",
+    "priceAlertsHint": "Get notified when price targets are hit",
+    "signalAlerts": "Signal Alerts",
+    "signalAlertsHint": "Get notified when signals change",
+    "notificationsHint": "Note: Browser notifications require permission",
+    "dataManagement": "Data Management",
+    "recentSearches": "Recent Searches",
+    "recentCount": "{{count}} items",
+    "watchlistCount": "{{count}} stocks",
+    "items": "items",
+    "stocks": "stocks",
+    "clear": "Clear",
+    "cleared": "Data cleared",
+    "saved": "Settings saved",
+    "confirmClear": "Clear all recent searches?",
+    "confirmClearWatchlist": "Clear all watchlist?"
+  },
+  "market": {
+    "symbol": "Symbol",
+    "price": "Price",
+    "change": "Change",
+    "volume": "Volume",
+    "marketCap": "Market Cap",
+    "peRatio": "P/E Ratio",
+    "forwardPE": "Forward P/E",
+    "beta": "Beta",
+    "52weekHigh": "52W High",
+    "52weekLow": "52W Low",
+    "session": "Session",
+    "preMarket": "Pre-Market",
+    "regular": "Regular",
+    "afterHours": "After Hours",
+    "closed": "Closed"
+  },
+  "timeframes": {
+    "short_term": "Short-term",
+    "medium_term": "Medium-term",
+    "long_term": "Long-term",
+    "short_term_period": "(1-2 weeks)",
+    "medium_term_period": "(1-3 months)",
+    "long_term_period": "(3-12 months)",
+    "1M": "1M",
+    "3M": "3M",
+    "6M": "6M",
+    "1Y": "1Y",
+    "5Y": "5Y"
+  },
+  "timeframeDescriptions": {
+    "short_term": "Short-term {{signal}} signal with {{trend}} trend. Confidence level: {{confidence}}%.",
+    "medium_term": "Medium-term {{signal}} signal with {{trend}} trend. Confidence level: {{confidence}}%.",
+    "long_term": "Long-term {{signal}} signal with {{trend}} trend. Confidence level: {{confidence}}%."
+  },
+  "header": {
+    "searchPlaceholder": "Search stock symbol (e.g., AAPL, TSLA)"
+  },
+  "language": {
+    "en": "English",
+    "zh": "中文"
+  }
+}

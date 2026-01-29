@@ -21,6 +21,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import redis.asyncio as redis
 
+# 导入路由
+from .broker_routes import router as broker_router
+from .analysis_routes import router as analysis_router
+
 # ============================================================================
 # Pydantic Models
 # ============================================================================
@@ -233,6 +237,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册路由
+app.include_router(broker_router)
+app.include_router(analysis_router)
 
 
 # ============================================================================

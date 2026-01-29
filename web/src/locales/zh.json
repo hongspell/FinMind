@@ -1,0 +1,161 @@
+{
+  "common": {
+    "loading": "加载中...",
+    "error": "错误",
+    "retry": "重试",
+    "refresh": "刷新",
+    "export": "导出报告",
+    "search": "搜索",
+    "cancel": "取消",
+    "confirm": "确认",
+    "save": "保存",
+    "delete": "删除"
+  },
+  "nav": {
+    "dashboard": "仪表盘",
+    "analysis": "分析",
+    "portfolio": "投资组合",
+    "watchlist": "自选股",
+    "settings": "设置",
+    "profile": "个人资料",
+    "logout": "退出登录"
+  },
+  "dashboard": {
+    "title": "AI 驱动的投资分析",
+    "subtitle": "获取全面的股票分析，包括多时间框架技术信号、估值模型和风险评估，由先进的 AI 提供支持。",
+    "searchPlaceholder": "输入股票代码（如 AAPL, TSLA, NVDA）",
+    "analyze": "分析",
+    "popularStocks": "热门股票",
+    "recentSearches": "最近搜索",
+    "noRecentSearches": "暂无搜索记录",
+    "quickTips": "快速提示",
+    "tip1": "使用多时间框架分析以获得更好的买卖点",
+    "tip2": "置信度越高 = 指标一致性越强",
+    "tip3": "同时查看技术面和基本面",
+    "tip4": "注意市场交易时段（盘前/盘后）"
+  },
+  "analysis": {
+    "title": "{{symbol}} 分析",
+    "lastUpdated": "最后更新",
+    "analyzing": "正在分析 {{symbol}}...",
+    "analyzingHint": "这可能需要 30-60 秒",
+    "failed": "分析失败",
+    "noData": "暂无分析数据",
+    "noDataHint": "输入股票代码开始分析",
+    "priceChart": "{{symbol}} 价格走势图",
+    "technicalOverview": "技术概览",
+    "overallSignal": "综合信号",
+    "trendDirection": "趋势方向",
+    "signalConfidence": "信号置信度",
+    "supportLevels": "支撑位",
+    "resistanceLevels": "阻力位",
+    "multiTimeframe": "多时间框架分析",
+    "timeframe": "时间框架",
+    "signal": "信号",
+    "trend": "趋势",
+    "strength": "强度",
+    "confidence": "置信度",
+    "keyIndicators": "关键指标",
+    "description": "描述",
+    "exportSuccess": "报告导出成功"
+  },
+  "signals": {
+    "strong_buy": "强烈买入",
+    "buy": "买入",
+    "neutral": "中性",
+    "sell": "卖出",
+    "strong_sell": "强烈卖出"
+  },
+  "trends": {
+    "strong_bullish": "强势上涨",
+    "bullish": "上涨",
+    "neutral": "震荡",
+    "bearish": "下跌",
+    "strong_bearish": "强势下跌"
+  },
+  "confidence": {
+    "high": "高",
+    "medium": "中",
+    "low": "低"
+  },
+  "watchlist": {
+    "empty": "自选股列表为空",
+    "addHint": "搜索股票并点击星标图标添加到自选股",
+    "added": "已添加到自选股",
+    "removed": "已从自选股移除"
+  },
+  "settings": {
+    "language": "语言",
+    "displayLanguage": "显示语言",
+    "display": "显示",
+    "theme": "主题",
+    "darkTheme": "深色",
+    "lightTheme": "浅色",
+    "themeHint": "浅色主题即将推出",
+    "lightThemeHint": "浅色主题已应用（部分组件可能需要刷新）",
+    "lightThemeBeta": "浅色主题处于测试阶段，部分区域可能显示不正确",
+    "chartStyle": "图表样式",
+    "candlestick": "K线图",
+    "line": "折线图",
+    "area": "面积图",
+    "notifications": "通知",
+    "priceAlerts": "价格提醒",
+    "priceAlertsHint": "当价格达到目标时通知您",
+    "signalAlerts": "信号提醒",
+    "signalAlertsHint": "当信号变化时通知您",
+    "notificationsHint": "注意：浏览器通知需要授权",
+    "dataManagement": "数据管理",
+    "recentSearches": "最近搜索",
+    "recentCount": "{{count}} 条记录",
+    "watchlistCount": "{{count}} 只股票",
+    "items": "条记录",
+    "stocks": "只股票",
+    "clear": "清除",
+    "cleared": "数据已清除",
+    "saved": "设置已保存",
+    "confirmClear": "确定清除所有搜索记录？",
+    "confirmClearWatchlist": "确定清除所有自选股？"
+  },
+  "market": {
+    "symbol": "代码",
+    "price": "价格",
+    "change": "涨跌",
+    "volume": "成交量",
+    "marketCap": "市值",
+    "peRatio": "市盈率",
+    "forwardPE": "预测市盈率",
+    "beta": "贝塔系数",
+    "52weekHigh": "52周最高",
+    "52weekLow": "52周最低",
+    "session": "交易时段",
+    "preMarket": "盘前",
+    "regular": "常规",
+    "afterHours": "盘后",
+    "closed": "已收盘"
+  },
+  "timeframes": {
+    "short_term": "短期",
+    "medium_term": "中期",
+    "long_term": "长期",
+    "short_term_period": "(1-2周)",
+    "medium_term_period": "(1-3月)",
+    "long_term_period": "(3-12月)",
+    "1M": "1月",
+    "3M": "3月",
+    "6M": "6月",
+    "1Y": "1年",
+    "5Y": "5年"
+  },
+  "timeframeDescriptions": {
+    "short_term": "短期{{signal}}信号，{{trend}}趋势。置信度：{{confidence}}%。",
+    "medium_term": "中期{{signal}}信号，{{trend}}趋势。置信度：{{confidence}}%。",
+    "long_term": "长期{{signal}}信号，{{trend}}趋势。置信度：{{confidence}}%。"
+  },
+  "header": {
+    "searchPlaceholder": "搜索股票代码（如 AAPL, TSLA）"
+  },
+  "language": {
+    "en": "English",
+    "zh": "中文"
+  }
+}

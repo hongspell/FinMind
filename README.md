@@ -400,6 +400,114 @@ pytest tests/test_report_generator.py -v
 pytest tests/ -v --cov=src --cov-report=html
 ```
 
+## 🔗 Broker Integration
+
+FinMind supports integration with multiple brokerages for personalized portfolio analysis:
+
+| Broker | API | Status | Features |
+|--------|-----|--------|----------|
+| **IBKR** (盈透证券) | TWS API | ✅ Ready | Portfolio, Positions, Balance |
+| **Futu** (富途证券) | OpenD API | ✅ Ready | Portfolio, Positions, Balance |
+| **Tiger** (老虎证券) | Tiger Open API | ✅ Ready | Portfolio, Positions, Balance |
+
+### Web UI Setup
+
+1. Navigate to **Settings** page
+2. Find **Broker Connections** section
+3. Click **Connect** on your broker
+4. Enter connection details (host, port, credentials)
+5. View your portfolio at `/portfolio`
+
+You can also enable **Demo Mode** to test with sample data without connecting a real broker.
+
+### API Setup
+
+```bash
+# IBKR: Run IB Gateway and enable API
+# Futu: Run OpenD and login
+# Tiger: Register app at developer portal
+
+# Connect via API
+curl -X POST "http://localhost:8000/api/v1/broker/connect" \
+  -H "Content-Type: application/json" \
+  -d '{"broker_type": "ibkr", "ibkr_port": 4001}'
+
+# Get unified portfolio
+curl "http://localhost:8000/api/v1/broker/unified"
+```
+
+### Position-Aware Analysis
+
+```python
+from src.core.portfolio_analysis import PortfolioAnalyzer
+
+analyzer = PortfolioAnalyzer()
+result = analyzer.analyze(portfolio_summary)
+
+print(f"Health Score: {result.health_score}/100")
+print(f"Risk Score: {result.risk_score}/100")
+for rec in result.recommendations:
+    print(f"{rec.symbol}: {rec.action} - {rec.reason}")
+```
+
+## 📊 Advanced Features
+
+### Monte Carlo Simulation
+
+```python
+from src.core.monte_carlo import MonteCarloSimulator
+
+simulator = MonteCarloSimulator()
+
+# Single stock simulation
+result = simulator.simulate_price(
+    symbol="AAPL",
+    current_price=175.0,
+    annual_return=0.10,
+    annual_volatility=0.25,
+)
+print(f"95% VaR: ${result.var_values[0.95]:.2f}")
+
+# Portfolio VaR
+portfolio_result = simulator.simulate_portfolio(holdings)
+print(f"Sharpe Ratio: {portfolio_result.sharpe_ratio:.2f}")
+```
+
+### Redis Caching
+
+```python
+from src.core.cache import CacheService
+
+cache = CacheService()
+await cache.initialize()
+
+# Cached function
+@cache.cached(ttl=300, key_prefix="stock:")
+async def get_stock_data(symbol: str):
+    return await fetch_from_api(symbol)
+```
+
+## 🖥️ Web UI Features
+
+The web interface provides a complete portfolio management and analysis experience:
+
+### Pages
+
+| Page | Path | Description |
+|------|------|-------------|
+| Dashboard | `/` | Quick stock search, trending stocks |
+| Analysis | `/analysis/:symbol` | Technical analysis with multi-timeframe signals |
+| Portfolio | `/portfolio` | Unified portfolio view, health scores, risk metrics |
+| Watchlist | `/watchlist` | Track your favorite stocks |
+| Settings | `/settings` | Broker connections, API keys, preferences |
+
+### Risk Analysis Features
+
+- **Monte Carlo Simulation**: Price path visualization with configurable time horizons
+- **VaR/CVaR**: Value at Risk at 95% and 99% confidence levels
+- **Portfolio Scores**: Health (0-100), Risk (0-100), Diversification (0-100)
+- **Position Recommendations**: AI-driven buy/hold/sell suggestions
+
 ## 🛣️ Roadmap
 
 - [x] Core framework
@@ -409,7 +517,13 @@ pytest tests/ -v --cov=src --cov-report=html
 - [x] REST API
 - [x] CLI tool
 - [x] Bilingual support (English/Chinese)
-- [ ] Web UI
+- [x] Web UI (React + Ant Design)
+- [x] Broker Integration (IBKR, Futu, Tiger)
+- [x] Redis Caching Layer
+- [x] Monte Carlo Simulation
+- [x] Portfolio Context Analysis
+- [x] Portfolio Management UI
+- [x] Risk Analysis Charts
 - [ ] Real-time data streaming
 - [ ] Backtesting framework
 - [ ] MCP Server integration
