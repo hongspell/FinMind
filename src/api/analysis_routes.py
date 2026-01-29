@@ -13,6 +13,8 @@ import logging
 
 from .broker_routes import get_portfolio, UnifiedPortfolio
 from ..core.portfolio_analysis import PortfolioAnalyzer
+from ..core.portfolio_tracker import PortfolioTracker
+from ..core.database import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -277,14 +279,28 @@ async def analyze_portfolio(
         var_95 = analysis_result.risk_metrics.var_95
         var_99 = analysis_result.risk_metrics.var_99
 
+        # 尝试从历史数据计算最大回撤
+        max_drawdown = 0.0
+        historical_volatility = portfolio_volatility
+        historical_sharpe = 0.0
+        try:
+            tracker = PortfolioTracker(portfolio)
+            max_drawdown = await tracker.get_max_drawdown(days=365)
+            hist_vol = await tracker.get_volatility(days=252)
+            if hist_vol > 0:
+                historical_volatility = hist_vol
+            historical_sharpe = await tracker.get_sharpe_ratio(days=252)
+        except Exception as e:
+            logger.debug(f"Could not calculate historical metrics: {e}")
+
         risk_metrics = {
             "var_95": float(var_95),
             "var_99": float(var_99),
             "cvar_95": float(var_95 * 1.2),  # 简化估算
             "cvar_99": float(var_99 * 1.2),
-            "volatility": float(portfolio_volatility),
-            "sharpe_ratio": float(analysis_result.risk_metrics.win_rate / 50) if analysis_result.risk_metrics.win_rate > 0 else 0.5,
-            "max_drawdown": 0.0,  # 需要历史数据计算
+            "volatility": float(historical_volatility),
+            "sharpe_ratio": float(historical_sharpe) if historical_sharpe != 0 else (float(analysis_result.risk_metrics.win_rate / 50) if analysis_result.risk_metrics.win_rate > 0 else 0.5),
+            "max_drawdown": float(max_drawdown),
             "beta": float(analysis_result.risk_metrics.beta),
         }
 
@@ -390,6 +406,97 @@ async def get_portfolio_risk(
             "success": False,
             "error": "calculation_failed",
             "message": f"风险指标计算失败: {str(e)}",
+            "data": None
+        }
+
+
+@router.post("/portfolio/snapshot")
+async def record_portfolio_snapshot(
+    portfolio: UnifiedPortfolio = Depends(get_portfolio)
+):
+    """
+    手动记录投资组合快照
+
+    记录当前投资组合状态到数据库，用于计算历史指标（如最大回撤）。
+    建议在交易日收盘后调用，或设置定时任务自动记录。
+    """
+    if not portfolio.connected_brokers:
+        return {
+            "success": False,
+            "error": "no_broker_connected",
+            "message": "尚未连接任何券商账户",
+        }
+
+    try:
+        tracker = PortfolioTracker(portfolio)
+        success = await tracker.record_snapshot()
+
+        if success:
+            return {
+                "success": True,
+                "message": "投资组合快照已记录",
+            }
+        else:
+            return {
+                "success": False,
+                "error": "database_unavailable",
+                "message": "数据库不可用，请确保已启动 TimescaleDB 服务 (make docker-up)",
+            }
+    except Exception as e:
+        logger.error(f"Failed to record snapshot: {e}")
+        return {
+            "success": False,
+            "error": "snapshot_failed",
+            "message": str(e),
+        }
+
+
+@router.get("/portfolio/history")
+async def get_portfolio_history(
+    days: int = Query(default=30, ge=1, le=365),
+    portfolio: UnifiedPortfolio = Depends(get_portfolio)
+):
+    """
+    获取投资组合历史数据
+
+    返回指定天数内的投资组合快照数据，用于绘制净值曲线等。
+    """
+    try:
+        db = await get_database()
+        if not db.is_available:
+            return {
+                "success": False,
+                "error": "database_unavailable",
+                "message": "数据库不可用，请确保已启动 TimescaleDB 服务",
+                "data": None
+            }
+
+        snapshots = await db.get_portfolio_history(days=days)
+
+        return {
+            "success": True,
+            "data": {
+                "snapshots": [
+                    {
+                        "time": s.time.isoformat(),
+                        "total_assets": s.total_assets,
+                        "total_cash": s.total_cash,
+                        "total_market_value": s.total_market_value,
+                        "total_unrealized_pnl": s.total_unrealized_pnl,
+                        "position_count": s.position_count,
+                    }
+                    for s in snapshots
+                ],
+                "count": len(snapshots),
+                "days": days,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get portfolio history: {e}")
+        return {
+            "success": False,
+            "error": "fetch_failed",
+            "message": str(e),
             "data": None
         }
 

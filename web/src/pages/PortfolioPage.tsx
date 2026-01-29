@@ -72,37 +72,83 @@ const PortfolioPage: React.FC = () => {
 
   // 状态
   const [loading, setLoading] = useState(true);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
   const [portfolio, setPortfolio] = useState<UnifiedPortfolio | null>(null);
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [brokerStatus, setBrokerStatus] = useState<'unknown' | 'connected' | 'disconnected'>('unknown');
 
   // 主题颜色
   const secondaryColor = isDark ? '#8b949e' : '#595959';
 
-  // 加载数据
-  const loadData = async () => {
-    setLoading(true);
-    setError(null);
+  // 加载投资组合数据
+  const loadPortfolio = async (): Promise<boolean> => {
     try {
-      const [portfolioRes, analysisRes] = await Promise.all([
-        brokerApi.getUnifiedPortfolio().catch(() => null),
-        portfolioApi.analyze().catch(() => null),
-      ]);
+      // 先检查券商连接状态
+      const statusRes = await brokerApi.getStatus();
+      const brokers = (statusRes as any)?.brokers || [];
+      const hasConnected = brokers.some((b: any) => b.connected);
 
-      // broker API 直接返回数据
+      if (!hasConnected) {
+        setBrokerStatus('disconnected');
+        return false;
+      }
+
+      setBrokerStatus('connected');
+
+      // 获取投资组合数据
+      const portfolioRes = await brokerApi.getUnifiedPortfolio();
       if (portfolioRes && (portfolioRes as any).total_assets !== undefined) {
         setPortfolio(portfolioRes as any);
+        return true;
       }
+      return false;
+    } catch (err: any) {
+      console.error('Portfolio load error:', err);
+      // 检查是否是"未连接"错误
+      if (err.message?.includes('No brokers connected') || err.message?.includes('not connected')) {
+        setBrokerStatus('disconnected');
+      }
+      return false;
+    }
+  };
+
+  // 加载分析数据（在投资组合加载成功后调用）
+  const loadAnalysis = async () => {
+    setAnalysisLoading(true);
+    try {
+      const analysisRes = await portfolioApi.analyze();
       // portfolio analyze API 返回 {success, data} 格式
       if ((analysisRes as any)?.success && (analysisRes as any)?.data) {
         setAnalysis((analysisRes as any).data);
       }
-      // 如果两个 API 都失败，不设置错误，而是显示空状态提示用户连接券商
     } catch (err: any) {
-      // 忽略错误，显示空状态
-      console.error('Portfolio load error:', err);
+      console.error('Analysis load error:', err);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
+  // 主数据加载函数
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    setBrokerStatus('unknown');
+    setPortfolio(null);
+    setAnalysis(null);
+
+    try {
+      const portfolioLoaded = await loadPortfolio();
+
+      // 如果投资组合加载成功，加载分析数据
+      if (portfolioLoaded) {
+        // 不等待分析完成，让它在后台加载
+        loadAnalysis();
+      }
+    } catch (err: any) {
+      console.error('Data load error:', err);
     } finally {
       setLoading(false);
     }
@@ -372,13 +418,16 @@ const PortfolioPage: React.FC = () => {
     },
   ], [isZh, navigate]);
 
-  // 如果没有连接任何券商
-  const hasNoBrokers = !loading && (!portfolio || (portfolio as any).broker_count === 0);
+  // 如果没有连接任何券商（使用明确的状态判断）
+  const hasNoBrokers = !loading && brokerStatus === 'disconnected';
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: 400, gap: 16 }}>
         <Spin size="large" />
+        <Text type="secondary">
+          {isZh ? '正在加载投资组合数据...' : 'Loading portfolio data...'}
+        </Text>
       </div>
     );
   }
@@ -391,7 +440,7 @@ const PortfolioPage: React.FC = () => {
         type="error"
         showIcon
         action={
-          <Button size="small" onClick={loadData}>
+          <Button size="small" onClick={() => loadData()}>
             {isZh ? '重试' : 'Retry'}
           </Button>
         }
@@ -445,7 +494,7 @@ const PortfolioPage: React.FC = () => {
           <Text type="secondary">
             {isZh ? '最后更新' : 'Updated'}: {portfolio?.last_updated ? new Date(portfolio.last_updated).toLocaleString() : '-'}
           </Text>
-          <Button icon={<ReloadOutlined />} onClick={loadData}>
+          <Button icon={<ReloadOutlined />} onClick={() => loadData()}>
             {isZh ? '刷新' : 'Refresh'}
           </Button>
         </Space>
@@ -506,7 +555,7 @@ const PortfolioPage: React.FC = () => {
       </Row>
 
       {/* Scores and Risk Metrics */}
-      {analysis && (
+      {(analysis || analysisLoading) && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col xs={24} lg={8}>
             <Card
@@ -517,27 +566,30 @@ const PortfolioPage: React.FC = () => {
                 </Space>
               }
               size="small"
+              loading={analysisLoading && !analysis}
             >
-              <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                <Progress
-                  type="dashboard"
-                  percent={Math.round(analysis.health_score)}
-                  strokeColor={getScoreColor(analysis.health_score)}
-                  format={(percent) => (
-                    <div>
-                      <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
-                      <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
-                    </div>
-                  )}
-                />
-                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                  {analysis.health_score >= 80
-                    ? (isZh ? '投资组合状态良好' : 'Portfolio is healthy')
-                    : analysis.health_score >= 60
-                    ? (isZh ? '投资组合状态一般' : 'Portfolio needs attention')
-                    : (isZh ? '投资组合需要优化' : 'Portfolio needs optimization')}
-                </Text>
-              </div>
+              {analysis && (
+                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <Progress
+                    type="dashboard"
+                    percent={Math.round(analysis.health_score)}
+                    strokeColor={getScoreColor(analysis.health_score)}
+                    format={(percent) => (
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
+                        <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
+                      </div>
+                    )}
+                  />
+                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                    {analysis.health_score >= 80
+                      ? (isZh ? '投资组合状态良好' : 'Portfolio is healthy')
+                      : analysis.health_score >= 60
+                      ? (isZh ? '投资组合状态一般' : 'Portfolio needs attention')
+                      : (isZh ? '投资组合需要优化' : 'Portfolio needs optimization')}
+                  </Text>
+                </div>
+              )}
             </Card>
           </Col>
 
@@ -550,25 +602,30 @@ const PortfolioPage: React.FC = () => {
                 </Space>
               }
               size="small"
+              loading={analysisLoading && !analysis}
             >
-              <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                <Progress
-                  type="dashboard"
-                  percent={Math.round(analysis.risk_score)}
-                  strokeColor={getScoreColor(100 - analysis.risk_score)}
-                  format={(percent) => (
-                    <div>
-                      <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
-                      <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
+              {analysis && (
+                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <Progress
+                    type="dashboard"
+                    percent={Math.round(analysis.risk_score)}
+                    strokeColor={getScoreColor(100 - analysis.risk_score)}
+                    format={(percent) => (
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
+                        <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
+                      </div>
+                    )}
+                  />
+                  {riskLevel && (
+                    <div style={{ marginTop: 8, textAlign: 'center' }}>
+                      <Tag color={riskLevel.color}>
+                        {riskLevel.level}
+                      </Tag>
                     </div>
                   )}
-                />
-                {riskLevel && (
-                  <Tag color={riskLevel.color} style={{ marginTop: 8 }}>
-                    {riskLevel.level}
-                  </Tag>
-                )}
-              </div>
+                </div>
+              )}
             </Card>
           </Col>
 
@@ -581,25 +638,28 @@ const PortfolioPage: React.FC = () => {
                 </Space>
               }
               size="small"
+              loading={analysisLoading && !analysis}
             >
-              <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                <Progress
-                  type="dashboard"
-                  percent={Math.round(analysis.diversification_score)}
-                  strokeColor={getScoreColor(analysis.diversification_score)}
-                  format={(percent) => (
-                    <div>
-                      <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
-                      <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
-                    </div>
-                  )}
-                />
-                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                  {analysis.diversification_score >= 70
-                    ? (isZh ? '分散化良好' : 'Well diversified')
-                    : (isZh ? '集中度较高' : 'Concentrated portfolio')}
-                </Text>
-              </div>
+              {analysis && (
+                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <Progress
+                    type="dashboard"
+                    percent={Math.round(analysis.diversification_score)}
+                    strokeColor={getScoreColor(analysis.diversification_score)}
+                    format={(percent) => (
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
+                        <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
+                      </div>
+                    )}
+                  />
+                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                    {analysis.diversification_score >= 70
+                      ? (isZh ? '分散化良好' : 'Well diversified')
+                      : (isZh ? '集中度较高' : 'Concentrated portfolio')}
+                  </Text>
+                </div>
+              )}
             </Card>
           </Col>
         </Row>

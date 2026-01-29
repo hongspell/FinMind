@@ -112,11 +112,42 @@ cp .env.example .env
 ### Docker Deployment
 
 ```bash
-# Start full stack with Docker Compose
+# Start all services (database, cache, API)
 docker-compose up -d
 
 # View logs
 docker-compose logs -f financeai-api
+```
+
+### Development Setup (Recommended)
+
+For local development, you can run services individually:
+
+```bash
+# 1. Start database and cache services
+make docker-up
+# This starts TimescaleDB (PostgreSQL) on port 5432 and Redis on port 6379
+
+# 2. Start API server (in terminal 1)
+make api
+# API runs at http://localhost:8000
+
+# 3. Start frontend dev server (in terminal 2)
+make web
+# Frontend runs at http://localhost:5173
+```
+
+**Database Management:**
+
+```bash
+# Connect to database shell
+make db-shell
+
+# Reset database (caution: deletes all data)
+make db-reset
+
+# View database logs
+docker-compose logs -f timescaledb
 ```
 
 ### Basic Usage

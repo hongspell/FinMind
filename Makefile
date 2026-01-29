@@ -55,18 +55,52 @@ clean:
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	find . -type f -name ".coverage" -delete 2>/dev/null || true
 
-# Docker命令
+# ============ Docker命令 ============
+
+# 启动所有基础服务 (数据库、缓存)
 docker-up:
+	docker-compose up -d timescaledb redis
+	@echo "等待数据库启动..."
+	@sleep 5
+	@echo "✅ 基础服务已启动"
+	@echo "   PostgreSQL: localhost:5432"
+	@echo "   Redis:      localhost:6379"
+
+# 启动所有服务
+docker-up-all:
 	docker-compose up -d
 
+# 停止所有服务
 docker-down:
 	docker-compose down
 
+# 查看日志
 docker-logs:
 	docker-compose logs -f
 
+# 构建镜像
 docker-build:
 	docker-compose build
+
+# 数据库相关
+db-start:
+	docker-compose up -d timescaledb
+	@echo "等待数据库启动..."
+	@sleep 5
+	@docker-compose exec timescaledb pg_isready -U financeai -d financeai
+
+db-stop:
+	docker-compose stop timescaledb
+
+db-shell:
+	docker-compose exec timescaledb psql -U financeai -d financeai
+
+db-reset:
+	docker-compose down -v timescaledb
+	docker-compose up -d timescaledb
+	@echo "等待数据库重建..."
+	@sleep 5
+	@echo "数据库已重置"
 
 # ============ 前端命令 ============
 

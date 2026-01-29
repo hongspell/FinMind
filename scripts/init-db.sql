@@ -194,6 +194,143 @@ CREATE TABLE IF NOT EXISTS analysis_templates (
 
 
 -- ============================================
+-- 投资组合历史数据 (时序数据)
+-- ============================================
+
+-- 投资组合快照（用于计算最大回撤等指标）
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    time TIMESTAMPTZ NOT NULL,
+    account_id VARCHAR(100) NOT NULL DEFAULT 'default',
+    total_assets DECIMAL(18, 4) NOT NULL,
+    total_cash DECIMAL(18, 4) NOT NULL,
+    total_market_value DECIMAL(18, 4) NOT NULL,
+    total_unrealized_pnl DECIMAL(18, 4) DEFAULT 0,
+    total_realized_pnl DECIMAL(18, 4) DEFAULT 0,
+    position_count INT DEFAULT 0,
+    broker_count INT DEFAULT 0,
+    metadata JSONB DEFAULT '{}',
+    CONSTRAINT portfolio_snapshots_pkey PRIMARY KEY (time, account_id)
+);
+
+-- 转换为TimescaleDB超表
+SELECT create_hypertable('portfolio_snapshots', 'time', if_not_exists => TRUE);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_account
+    ON portfolio_snapshots (account_id, time DESC);
+
+-- 设置数据保留策略 (保留3年)
+SELECT add_retention_policy('portfolio_snapshots', INTERVAL '3 years', if_not_exists => TRUE);
+
+-- 压缩策略 (30天后压缩)
+ALTER TABLE portfolio_snapshots SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'account_id'
+);
+SELECT add_compression_policy('portfolio_snapshots', INTERVAL '30 days', if_not_exists => TRUE);
+
+
+-- 持仓历史（每日快照）
+CREATE TABLE IF NOT EXISTS position_history (
+    time TIMESTAMPTZ NOT NULL,
+    account_id VARCHAR(100) NOT NULL DEFAULT 'default',
+    symbol VARCHAR(20) NOT NULL,
+    market VARCHAR(20) NOT NULL,
+    quantity DECIMAL(18, 6) NOT NULL,
+    avg_cost DECIMAL(18, 4) NOT NULL,
+    current_price DECIMAL(18, 4) NOT NULL,
+    market_value DECIMAL(18, 4) NOT NULL,
+    unrealized_pnl DECIMAL(18, 4) DEFAULT 0,
+    unrealized_pnl_percent DECIMAL(10, 4) DEFAULT 0,
+    weight DECIMAL(10, 6) DEFAULT 0,  -- 持仓权重
+    broker VARCHAR(50),
+    CONSTRAINT position_history_pkey PRIMARY KEY (time, account_id, symbol, market)
+);
+
+-- 转换为TimescaleDB超表
+SELECT create_hypertable('position_history', 'time', if_not_exists => TRUE);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_position_history_account_symbol
+    ON position_history (account_id, symbol, time DESC);
+
+-- 数据保留和压缩
+SELECT add_retention_policy('position_history', INTERVAL '3 years', if_not_exists => TRUE);
+ALTER TABLE position_history SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'account_id,symbol'
+);
+SELECT add_compression_policy('position_history', INTERVAL '30 days', if_not_exists => TRUE);
+
+
+-- 交易记录
+CREATE TABLE IF NOT EXISTS trades (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    time TIMESTAMPTZ NOT NULL,
+    account_id VARCHAR(100) NOT NULL DEFAULT 'default',
+    symbol VARCHAR(20) NOT NULL,
+    market VARCHAR(20) NOT NULL,
+    action VARCHAR(10) NOT NULL,  -- 'buy' or 'sell'
+    quantity DECIMAL(18, 6) NOT NULL,
+    price DECIMAL(18, 4) NOT NULL,
+    total_value DECIMAL(18, 4) NOT NULL,
+    commission DECIMAL(18, 4) DEFAULT 0,
+    currency VARCHAR(10) DEFAULT 'USD',
+    broker VARCHAR(50),
+    order_id VARCHAR(100),
+    execution_id VARCHAR(100),
+    realized_pnl DECIMAL(18, 4),
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_trades_account_time
+    ON trades (account_id, time DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_symbol
+    ON trades (symbol, time DESC);
+
+
+-- ============================================
+-- 投资组合分析视图
+-- ============================================
+
+-- 最新投资组合快照
+CREATE OR REPLACE VIEW latest_portfolio_snapshot AS
+SELECT DISTINCT ON (account_id)
+    time,
+    account_id,
+    total_assets,
+    total_cash,
+    total_market_value,
+    total_unrealized_pnl,
+    total_realized_pnl,
+    position_count,
+    broker_count
+FROM portfolio_snapshots
+ORDER BY account_id, time DESC;
+
+-- 投资组合每日收益率
+CREATE OR REPLACE VIEW portfolio_daily_returns AS
+SELECT
+    time::DATE as date,
+    account_id,
+    total_assets,
+    LAG(total_assets) OVER (PARTITION BY account_id ORDER BY time) as prev_assets,
+    CASE
+        WHEN LAG(total_assets) OVER (PARTITION BY account_id ORDER BY time) > 0
+        THEN (total_assets - LAG(total_assets) OVER (PARTITION BY account_id ORDER BY time))
+             / LAG(total_assets) OVER (PARTITION BY account_id ORDER BY time)
+        ELSE 0
+    END as daily_return
+FROM (
+    SELECT DISTINCT ON (time::DATE, account_id)
+        time, account_id, total_assets
+    FROM portfolio_snapshots
+    ORDER BY time::DATE, account_id, time DESC
+) daily_snapshots;
+
+
+-- ============================================
 -- 缓存表
 -- ============================================
 

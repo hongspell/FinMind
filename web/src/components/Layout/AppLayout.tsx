@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Input, Button, Space, Typography, Dropdown, Avatar } from 'antd';
+import { Layout, Menu, Button, Space, Typography, Dropdown, Avatar } from 'antd';
 import {
-  SearchOutlined,
   LineChartOutlined,
   DashboardOutlined,
   StarOutlined,
@@ -22,12 +21,10 @@ const { Text } = Typography;
 
 interface AppLayoutProps {
   children: React.ReactNode;
-  onSearch?: (symbol: string) => void;
 }
 
-const AppLayout: React.FC<AppLayoutProps> = ({ children, onSearch }) => {
+const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
-  const [searchValue, setSearchValue] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
@@ -39,13 +36,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, onSearch }) => {
   const textColor = isDark ? '#e6edf3' : '#1f1f1f';
   const secondaryColor = isDark ? '#8b949e' : '#595959';
   const siderBg = isDark ? '#161b22' : '#ffffff';
-
-  const handleSearch = () => {
-    if (searchValue.trim()) {
-      onSearch?.(searchValue.trim().toUpperCase());
-      navigate(`/analysis/${searchValue.trim().toUpperCase()}`);
-    }
-  };
 
   const menuItems = [
     {
@@ -152,6 +142,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, onSearch }) => {
         <Header
           style={{
             padding: '0 24px',
+            height: 56,
+            lineHeight: '56px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -159,29 +151,16 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, onSearch }) => {
             background: siderBg,
           }}
         >
-          {/* Left: Collapse + Search */}
-          <Space size="large">
-            <Button
-              type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
-              style={{ color: textColor }}
-            />
-
-            <Input.Search
-              placeholder={t('header.searchPlaceholder')}
-              allowClear
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value.toUpperCase())}
-              onSearch={handleSearch}
-              onPressEnter={handleSearch}
-              style={{ width: 360 }}
-              prefix={<SearchOutlined style={{ color: secondaryColor }} />}
-            />
-          </Space>
+          {/* Left: Collapse Button */}
+          <Button
+            type="text"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed(!collapsed)}
+            style={{ color: textColor }}
+          />
 
           {/* Right: Actions */}
-          <Space size="middle">
+          <Space size="middle" align="center">
             <LanguageSwitcher />
             <Button
               type="text"
