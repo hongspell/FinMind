@@ -19,6 +19,7 @@ from .base import (
     BrokerError,
     Currency,
     Market,
+    PositionSide,
 )
 from .ibkr import IBKRAdapter, IBKRMockAdapter
 from .futu import FutuAdapter, FutuMockAdapter
@@ -332,15 +333,16 @@ class UnifiedPortfolio:
         """
         summaries = await self.get_all_summaries()
 
+        # 聚合持仓（先聚合以便计算准确的未实现盈亏）
+        aggregated = self._aggregate_positions(summaries)
+
         # 计算总资产
         total_assets = sum(s.balance.total_assets for s in summaries)
         total_cash = sum(s.balance.cash for s in summaries)
         total_market_value = sum(s.balance.market_value for s in summaries)
-        total_unrealized_pnl = sum(s.balance.total_pnl for s in summaries)
+        # 从聚合后的持仓计算未实现盈亏（更准确）
+        total_unrealized_pnl = sum(p.total_unrealized_pnl for p in aggregated)
         total_realized_pnl = sum(s.balance.day_pnl for s in summaries)
-
-        # 聚合持仓
-        aggregated = self._aggregate_positions(summaries)
 
         # 计算分配
         broker_allocation = {}
@@ -431,6 +433,59 @@ class UnifiedPortfolio:
                 agg.unrealized_pnl_percent = agg.total_unrealized_pnl / total_cost * 100
 
         return list(positions_map.values())
+
+    async def get_portfolio_summary(self) -> PortfolioSummary:
+        """
+        获取合并后的投资组合摘要（用于分析器）
+
+        将所有券商的数据合并为单个 PortfolioSummary 对象，
+        以便 PortfolioAnalyzer 进行分析。
+
+        Returns:
+            PortfolioSummary: 合并后的投资组合摘要
+        """
+        # 获取统一摘要
+        unified = await self.get_unified_summary()
+
+        # 将 AggregatedPosition 转换为 Position 列表
+        positions: List[Position] = []
+        for agg in unified.aggregated_positions:
+            pos = Position(
+                symbol=agg.symbol,
+                market=agg.market,
+                quantity=agg.total_quantity,
+                avg_cost=agg.avg_cost,
+                current_price=agg.current_price,
+                market_value=agg.total_market_value,
+                unrealized_pnl=agg.total_unrealized_pnl,
+                unrealized_pnl_percent=agg.unrealized_pnl_percent,
+                realized_pnl=0.0,
+                side=PositionSide.LONG,
+                currency=agg.currency,
+            )
+            positions.append(pos)
+
+        # 创建合并的账户余额
+        balance = AccountBalance(
+            total_assets=unified.total_assets,
+            cash=unified.total_cash,
+            market_value=unified.total_market_value,
+            buying_power=unified.total_cash,  # 简化处理
+            currency=Currency.USD,
+            day_pnl=unified.total_realized_pnl,
+            total_pnl=unified.total_unrealized_pnl,
+        )
+
+        # 创建合并的投资组合摘要
+        return PortfolioSummary(
+            broker="Unified",
+            account_id="all",
+            balance=balance,
+            positions=positions,
+            market_allocation=unified.market_allocation,
+            currency_exposure=unified.currency_exposure,
+            last_updated=unified.last_updated,
+        )
 
     async def get_position_across_brokers(self, symbol: str) -> Dict[str, Optional[Position]]:
         """

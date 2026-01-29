@@ -6,10 +6,13 @@ FinMind - 高级分析 API 路由
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 import numpy as np
 import logging
+
+from .broker_routes import get_portfolio, UnifiedPortfolio
+from ..core.portfolio_analysis import PortfolioAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +93,14 @@ async def simulate_price(request: MonteCarloRequest):
     使用几何布朗运动模型模拟股票价格路径
     """
     try:
-        current_price = request.current_price or 100.0
+        current_price = request.current_price
         symbol = request.symbol or "STOCK"
+
+        if not current_price or current_price <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="必须提供有效的 current_price 参数（当前价格）"
+            )
 
         # 参数
         dt = 1 / 252  # 日步长
@@ -171,6 +180,8 @@ async def simulate_price(request: MonteCarloRequest):
             }
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Monte Carlo simulation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -181,19 +192,20 @@ async def get_volatility(
     symbol: str,
     days: int = Query(default=252, ge=30, le=1000)
 ):
-    """获取股票历史波动率"""
-    # 模拟数据（实际应从数据源获取）
-    np.random.seed(hash(symbol) % 2**32)
-    volatility = 0.15 + np.random.random() * 0.35  # 15% - 50%
+    """
+    获取股票历史波动率
 
-    return {
-        "success": True,
-        "data": {
-            "symbol": symbol.upper(),
-            "volatility": float(volatility),
-            "days": days,
+    注意：此接口需要外部数据源支持，当前返回错误提示
+    """
+    # TODO: 集成真实的历史数据源（如 yfinance, polygon.io 等）
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "error": "历史波动率数据暂不可用",
+            "message": f"获取 {symbol.upper()} 的历史波动率需要集成外部数据源",
+            "suggestion": "请在蒙特卡洛模拟请求中手动指定 annual_volatility 参数"
         }
-    }
+    )
 
 
 # ============================================================================
@@ -201,109 +213,106 @@ async def get_volatility(
 # ============================================================================
 
 @router.get("/portfolio/analyze", response_model=dict)
-async def analyze_portfolio():
+async def analyze_portfolio(
+    portfolio: UnifiedPortfolio = Depends(get_portfolio)
+):
     """
     投资组合分析
 
     分析当前投资组合的健康度、风险和分散度
+    基于已连接券商的真实持仓数据
     """
     try:
-        # 模拟数据（实际应从 broker 获取真实数据）
-        np.random.seed(42)
+        # 检查是否有连接的券商
+        if not portfolio.connected_brokers:
+            return {
+                "success": False,
+                "error": "no_broker_connected",
+                "message": "尚未连接任何券商账户，无法进行投资组合分析",
+                "data": None
+            }
 
-        # 生成示例持仓
-        positions = [
-            {"symbol": "AAPL", "weight": 0.25, "pnl_pct": 15.5},
-            {"symbol": "MSFT", "weight": 0.20, "pnl_pct": 12.3},
-            {"symbol": "GOOGL", "weight": 0.15, "pnl_pct": -3.2},
-            {"symbol": "AMZN", "weight": 0.12, "pnl_pct": 8.7},
-            {"symbol": "NVDA", "weight": 0.10, "pnl_pct": 45.2},
-            {"symbol": "TSLA", "weight": 0.08, "pnl_pct": -12.5},
-            {"symbol": "META", "weight": 0.05, "pnl_pct": 22.1},
-            {"symbol": "JPM", "weight": 0.05, "pnl_pct": 5.3},
-        ]
+        # 获取真实的投资组合摘要
+        try:
+            portfolio_summary = await portfolio.get_portfolio_summary()
+        except Exception as e:
+            logger.error(f"Failed to get portfolio summary: {e}")
+            return {
+                "success": False,
+                "error": "data_fetch_failed",
+                "message": f"获取投资组合数据失败: {str(e)}",
+                "data": None
+            }
 
+        # 检查是否有持仓
+        if not portfolio_summary.positions:
+            return {
+                "success": False,
+                "error": "no_positions",
+                "message": "当前投资组合没有持仓，无法进行分析",
+                "data": None
+            }
+
+        # 使用真实数据进行分析
+        analyzer = PortfolioAnalyzer()
+        analysis_result = analyzer.analyze(portfolio_summary)
+
+        # 转换为 API 响应格式
         # 计算权重
-        weights = [p["weight"] for p in positions]
+        total_value = portfolio_summary.balance.total_assets
+        positions = portfolio_summary.positions
 
         # HHI 指数
-        hhi = sum(w**2 for w in weights)
+        weights = [p.market_value / total_value for p in positions] if total_value > 0 else []
+        hhi = sum(w**2 for w in weights) if weights else 0
 
         # 集中度
-        sorted_weights = sorted(weights, reverse=True)
-        top_holding_weight = sorted_weights[0]
-        top_3_weight = sum(sorted_weights[:3])
-        top_5_weight = sum(sorted_weights[:5])
+        sorted_weights = sorted(weights, reverse=True) if weights else []
+        top_holding_weight = sorted_weights[0] if sorted_weights else 0
+        top_3_weight = sum(sorted_weights[:3]) if len(sorted_weights) >= 3 else sum(sorted_weights)
+        top_5_weight = sum(sorted_weights[:5]) if len(sorted_weights) >= 5 else sum(sorted_weights)
 
-        # 分散度评分 (0-100)
-        diversification_score = min(100, max(0, (1 - hhi) * 120))
-
-        # 风险指标
-        portfolio_volatility = 0.22
-        var_95 = 10000 * 1.65 * portfolio_volatility / np.sqrt(252)
-        var_99 = 10000 * 2.33 * portfolio_volatility / np.sqrt(252)
+        # 风险指标 - 使用真实数据计算
+        portfolio_volatility = analysis_result.risk_metrics.expected_volatility
+        var_95 = analysis_result.risk_metrics.var_95
+        var_99 = analysis_result.risk_metrics.var_99
 
         risk_metrics = {
             "var_95": float(var_95),
             "var_99": float(var_99),
-            "cvar_95": float(var_95 * 1.2),
+            "cvar_95": float(var_95 * 1.2),  # 简化估算
             "cvar_99": float(var_99 * 1.2),
             "volatility": float(portfolio_volatility),
-            "sharpe_ratio": 1.25,
-            "max_drawdown": 0.18,
-            "beta": 1.15,
+            "sharpe_ratio": float(analysis_result.risk_metrics.win_rate / 50) if analysis_result.risk_metrics.win_rate > 0 else 0.5,
+            "max_drawdown": 0.0,  # 需要历史数据计算
+            "beta": float(analysis_result.risk_metrics.beta),
         }
 
-        # 风险评分 (0-100, 越高风险越大)
-        risk_score = min(100, max(0,
-            hhi * 100 +  # 集中度风险
-            portfolio_volatility * 100 +  # 波动风险
-            risk_metrics["beta"] * 10  # 市场风险
-        ))
-
-        # 健康评分 (0-100)
-        health_score = min(100, max(0,
-            100 - risk_score * 0.3 +
-            diversification_score * 0.3 +
-            (1 if risk_metrics["sharpe_ratio"] > 1 else 0.5) * 20 +
-            (1 if risk_metrics["max_drawdown"] < 0.2 else 0.5) * 20
-        ))
-
-        # 生成建议
+        # 生成建议 - 基于真实持仓
         recommendations = []
-        for p in positions:
-            if p["weight"] > 0.2:
-                recommendations.append({
-                    "symbol": p["symbol"],
-                    "action": "reduce",
-                    "reason": f"持仓占比 {p['weight']*100:.1f}% 过高，建议减持以降低集中风险",
-                    "priority": "high",
-                    "current_weight": p["weight"],
-                    "suggested_weight": 0.15,
-                })
-            elif p["pnl_pct"] < -10:
-                recommendations.append({
-                    "symbol": p["symbol"],
-                    "action": "watch",
-                    "reason": f"亏损 {abs(p['pnl_pct']):.1f}%，需要关注止损位",
-                    "priority": "medium",
-                    "current_weight": p["weight"],
-                })
-            elif p["pnl_pct"] > 40:
-                recommendations.append({
-                    "symbol": p["symbol"],
-                    "action": "reduce",
-                    "reason": f"盈利 {p['pnl_pct']:.1f}%，可考虑部分止盈",
-                    "priority": "low",
-                    "current_weight": p["weight"],
-                })
+        for rec in analysis_result.recommendations:
+            # 找到对应持仓的权重
+            pos_weight = 0
+            for p in positions:
+                if p.symbol.upper() == rec.symbol.upper():
+                    pos_weight = p.market_value / total_value if total_value > 0 else 0
+                    break
+
+            recommendations.append({
+                "symbol": rec.symbol,
+                "action": rec.action,
+                "reason": rec.reason,
+                "priority": rec.urgency,
+                "current_weight": pos_weight,
+                "suggested_weight": rec.target_weight,
+            })
 
         return {
             "success": True,
             "data": {
-                "health_score": float(health_score),
-                "risk_score": float(risk_score),
-                "diversification_score": float(diversification_score),
+                "health_score": float(analysis_result.health_score),
+                "risk_score": float(analysis_result.risk_score),
+                "diversification_score": float(analysis_result.diversification_score),
                 "risk_metrics": risk_metrics,
                 "recommendations": recommendations,
                 "concentration_risk": {
@@ -312,55 +321,143 @@ async def analyze_portfolio():
                     "top_5_weight": float(top_5_weight),
                     "hhi_index": float(hhi),
                 },
+                "position_count": len(positions),
+                "total_value": float(total_value),
+                "total_unrealized_pnl": float(analysis_result.risk_metrics.total_unrealized_pnl),
+                "total_unrealized_pnl_percent": float(analysis_result.risk_metrics.total_unrealized_pnl_percent),
                 "analysis_timestamp": datetime.utcnow().isoformat(),
             }
         }
 
     except Exception as e:
-        logger.error(f"Portfolio analysis error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Portfolio analysis error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": "analysis_failed",
+            "message": f"投资组合分析失败: {str(e)}",
+            "data": None
+        }
 
 
 @router.get("/portfolio/risk")
-async def get_portfolio_risk():
+async def get_portfolio_risk(
+    portfolio: UnifiedPortfolio = Depends(get_portfolio)
+):
     """获取投资组合风险指标"""
-    return {
-        "success": True,
-        "data": {
-            "var_95": 1523.45,
-            "var_99": 2145.67,
-            "cvar_95": 1828.14,
-            "cvar_99": 2574.80,
-            "volatility": 0.22,
-            "sharpe_ratio": 1.25,
-            "max_drawdown": 0.18,
-            "beta": 1.15,
+    # 检查是否有连接的券商
+    if not portfolio.connected_brokers:
+        return {
+            "success": False,
+            "error": "no_broker_connected",
+            "message": "尚未连接任何券商账户",
+            "data": None
         }
-    }
+
+    try:
+        portfolio_summary = await portfolio.get_portfolio_summary()
+
+        if not portfolio_summary.positions:
+            return {
+                "success": False,
+                "error": "no_positions",
+                "message": "当前没有持仓",
+                "data": None
+            }
+
+        analyzer = PortfolioAnalyzer()
+        analysis_result = analyzer.analyze(portfolio_summary)
+
+        total_value = portfolio_summary.balance.total_assets
+        var_95 = analysis_result.risk_metrics.var_95
+        var_99 = analysis_result.risk_metrics.var_99
+
+        return {
+            "success": True,
+            "data": {
+                "var_95": float(var_95),
+                "var_99": float(var_99),
+                "cvar_95": float(var_95 * 1.2),
+                "cvar_99": float(var_99 * 1.2),
+                "volatility": float(analysis_result.risk_metrics.expected_volatility),
+                "sharpe_ratio": float(analysis_result.risk_metrics.win_rate / 50) if analysis_result.risk_metrics.win_rate > 0 else 0.5,
+                "max_drawdown": 0.0,  # 需要历史数据
+                "beta": float(analysis_result.risk_metrics.beta),
+            }
+        }
+    except Exception as e:
+        logger.error(f"Portfolio risk calculation error: {e}")
+        return {
+            "success": False,
+            "error": "calculation_failed",
+            "message": f"风险指标计算失败: {str(e)}",
+            "data": None
+        }
 
 
 @router.get("/portfolio/recommendations")
-async def get_portfolio_recommendations():
+async def get_portfolio_recommendations(
+    portfolio: UnifiedPortfolio = Depends(get_portfolio)
+):
     """获取持仓建议"""
-    return {
-        "success": True,
-        "data": {
-            "recommendations": [
-                {
-                    "symbol": "AAPL",
-                    "action": "hold",
-                    "reason": "持仓比例适中，基本面稳健",
-                    "priority": "low",
-                    "current_weight": 0.25,
-                },
-                {
-                    "symbol": "NVDA",
-                    "action": "reduce",
-                    "reason": "涨幅较大，可考虑部分止盈",
-                    "priority": "medium",
-                    "current_weight": 0.10,
-                    "suggested_weight": 0.07,
-                },
-            ]
+    # 检查是否有连接的券商
+    if not portfolio.connected_brokers:
+        return {
+            "success": False,
+            "error": "no_broker_connected",
+            "message": "尚未连接任何券商账户",
+            "data": None
         }
-    }
+
+    try:
+        portfolio_summary = await portfolio.get_portfolio_summary()
+
+        if not portfolio_summary.positions:
+            return {
+                "success": True,
+                "data": {
+                    "recommendations": [],
+                    "message": "当前没有持仓，无需建议"
+                }
+            }
+
+        analyzer = PortfolioAnalyzer()
+        analysis_result = analyzer.analyze(portfolio_summary)
+
+        total_value = portfolio_summary.balance.total_assets
+        positions = portfolio_summary.positions
+
+        recommendations = []
+        for rec in analysis_result.recommendations:
+            # 找到对应持仓的权重
+            pos_weight = 0
+            for p in positions:
+                if p.symbol.upper() == rec.symbol.upper():
+                    pos_weight = p.market_value / total_value if total_value > 0 else 0
+                    break
+
+            recommendations.append({
+                "symbol": rec.symbol,
+                "action": rec.action,
+                "reason": rec.reason,
+                "priority": rec.urgency,
+                "current_weight": pos_weight,
+                "suggested_weight": rec.target_weight,
+            })
+
+        # 如果没有特别的建议，返回空列表
+        return {
+            "success": True,
+            "data": {
+                "recommendations": recommendations,
+                "portfolio_recommendations": analysis_result.portfolio_recommendations,
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Portfolio recommendations error: {e}")
+        return {
+            "success": False,
+            "error": "calculation_failed",
+            "message": f"获取建议失败: {str(e)}",
+            "data": None
+        }

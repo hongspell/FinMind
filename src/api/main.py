@@ -306,47 +306,39 @@ async def create_analysis(
 
 
 async def run_analysis(task_id: str, request: AnalysisRequest):
-    """后台执行分析任务"""
+    """
+    后台执行分析任务
+
+    TODO: 集成真实的 FinanceAI 分析代理
+    当前版本尚未完成分析代理集成，将返回错误状态
+    """
     try:
         await task_store.update_task(
             task_id,
             status=AnalysisStatus.RUNNING,
-            started_at=datetime.utcnow()
+            started_at=datetime.utcnow(),
+            current_stage="initializing"
         )
-        
-        # 模拟分析过程（实际应调用FinanceAI）
-        stages = ["data_collection", "initial_analysis", "deep_analysis", 
-                  "risk_assessment", "strategy_synthesis"]
-        
-        for i, stage in enumerate(stages):
-            await task_store.update_task(
-                task_id,
-                progress=(i + 1) / len(stages),
-                current_stage=stage
-            )
-            await asyncio.sleep(1)  # 模拟处理时间
-        
-        # 模拟结果
-        result = {
-            "target": request.target,
-            "valuation": {
-                "fair_value_range": {"low": 150, "mid": 175, "high": 200},
-                "current_price": 165,
-                "upside_percent": 6.1
-            },
-            "recommendation": "buy",
-            "conviction": "medium",
-            "confidence": 0.72
-        }
-        
+
+        # TODO: 集成真实的分析代理系统
+        # 当前版本分析代理尚未完成集成，返回错误状态
         await task_store.update_task(
             task_id,
-            status=AnalysisStatus.COMPLETED,
-            completed_at=datetime.utcnow(),
-            progress=1.0,
-            result=result
+            status=AnalysisStatus.FAILED,
+            error="分析服务尚未完成配置。需要配置 LLM API 密钥和数据源才能进行完整分析。",
+            result={
+                "target": request.target,
+                "error": "service_not_configured",
+                "message": "完整股票分析功能需要配置以下内容：",
+                "requirements": [
+                    "LLM API 密钥（OpenAI/Anthropic/本地模型）",
+                    "财务数据源（如 Polygon.io, Alpha Vantage）",
+                    "市场数据源"
+                ],
+                "suggestion": "请查阅文档配置相关服务，或使用已连接券商的投资组合分析功能"
+            }
         )
-        
+
     except Exception as e:
         await task_store.update_task(
             task_id,
@@ -427,63 +419,55 @@ async def batch_scan(
 
 @app.get("/api/v1/quote/{symbol}", tags=["Quick Query"])
 async def get_quote(symbol: str):
-    """获取实时报价"""
-    # 模拟数据
-    return {
-        "symbol": symbol.upper(),
-        "price": 175.50,
-        "change": 2.30,
-        "change_percent": 1.33,
-        "volume": 45_000_000,
-        "market_cap": 2_750_000_000_000,
-        "pe_ratio": 28.5,
-        "timestamp": datetime.utcnow()
-    }
+    """
+    获取实时报价
 
-
-@app.get("/api/v1/valuation/{symbol}", response_model=ValuationSummary, tags=["Quick Query"])
-async def get_quick_valuation(symbol: str):
-    """快速估值查询（使用缓存或简化模型）"""
-    # 模拟数据
-    return ValuationSummary(
-        fair_value_low=160.0,
-        fair_value_mid=180.0,
-        fair_value_high=200.0,
-        current_price=175.50,
-        upside_percent=2.56,
-        confidence=0.68,
-        primary_method="dcf"
+    注意：此接口需要外部数据源支持
+    """
+    # TODO: 集成真实的市场数据源（如 yfinance, polygon.io, Alpha Vantage 等）
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "error": "data_source_not_configured",
+            "message": f"获取 {symbol.upper()} 的实时报价需要集成外部数据源",
+            "suggestion": "请配置市场数据提供商（如 Polygon.io, Alpha Vantage）"
+        }
     )
 
 
-@app.get("/api/v1/recommendation/{symbol}", response_model=RecommendationResponse, tags=["Quick Query"])
+@app.get("/api/v1/valuation/{symbol}", tags=["Quick Query"])
+async def get_quick_valuation(symbol: str):
+    """
+    快速估值查询
+
+    注意：此接口需要财务数据源和估值模型支持
+    """
+    # TODO: 集成真实的财务数据源和估值计算
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "error": "valuation_service_not_available",
+            "message": f"获取 {symbol.upper()} 的估值需要集成财务数据源和估值模型",
+            "suggestion": "请使用完整分析功能或配置财务数据提供商"
+        }
+    )
+
+
+@app.get("/api/v1/recommendation/{symbol}", tags=["Quick Query"])
 async def get_recommendation(symbol: str):
-    """获取投资建议摘要"""
-    return RecommendationResponse(
-        target=symbol.upper(),
-        recommendation="buy",
-        conviction="medium",
-        price_target=ValuationSummary(
-            fair_value_low=160.0,
-            fair_value_mid=180.0,
-            fair_value_high=200.0,
-            current_price=175.50,
-            upside_percent=2.56,
-            confidence=0.68,
-            primary_method="dcf"
-        ),
-        key_catalysts=[
-            "AI服务收入增长强劲",
-            "服务业务毛利率提升",
-            "股票回购持续"
-        ],
-        key_risks=[
-            "中国市场增长放缓",
-            "手机销量周期性下滑",
-            "监管压力"
-        ],
-        time_horizon="12-18 months",
-        generated_at=datetime.utcnow()
+    """
+    获取投资建议摘要
+
+    注意：此接口需要完成完整分析后才能提供建议
+    """
+    # TODO: 从缓存或数据库获取已完成的分析结果
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "error": "recommendation_not_available",
+            "message": f"获取 {symbol.upper()} 的投资建议需要先完成完整分析",
+            "suggestion": "请使用 POST /api/v1/analyze 接口发起分析任务"
+        }
     )
 
 

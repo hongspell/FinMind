@@ -289,15 +289,25 @@ const PortfolioPage: React.FC = () => {
       title: isZh ? '时间' : 'Time',
       dataIndex: 'trade_time',
       key: 'trade_time',
-      width: 160,
-      render: (val: string) => val ? new Date(val).toLocaleString() : '-',
+      width: 145,
+      render: (val: string) => {
+        if (!val) return '-';
+        const date = new Date(val);
+        // 格式: MM/DD HH:mm (更紧凑的格式)
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const mins = String(date.getMinutes()).padStart(2, '0');
+        return `${month}/${day} ${hours}:${mins}`;
+      },
     },
     {
       title: isZh ? '股票' : 'Symbol',
       dataIndex: 'symbol',
       key: 'symbol',
+      width: 80,
       render: (symbol: string) => (
-        <Button type="link" size="small" onClick={() => navigate(`/analysis/${symbol}`)}>
+        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate(`/analysis/${symbol}`)}>
           {symbol}
         </Button>
       ),
@@ -306,16 +316,18 @@ const PortfolioPage: React.FC = () => {
       title: isZh ? '操作' : 'Action',
       dataIndex: 'action',
       key: 'action',
+      width: 70,
       render: (action: string) => (
-        <Tag color={action === 'buy' ? 'success' : 'error'}>
+        <Tag color={action === 'buy' ? 'success' : 'error'} style={{ margin: 0 }}>
           {action === 'buy' ? (isZh ? '买入' : 'BUY') : (isZh ? '卖出' : 'SELL')}
         </Tag>
       ),
     },
     {
-      title: isZh ? '数量' : 'Quantity',
+      title: isZh ? '数量' : 'Qty',
       dataIndex: 'quantity',
       key: 'quantity',
+      width: 70,
       align: 'right' as const,
       render: (val: number) => val?.toLocaleString() || '-',
     },
@@ -323,6 +335,7 @@ const PortfolioPage: React.FC = () => {
       title: isZh ? '价格' : 'Price',
       dataIndex: 'price',
       key: 'price',
+      width: 80,
       align: 'right' as const,
       render: (val: number) => val ? `$${val.toFixed(2)}` : '-',
     },
@@ -330,26 +343,29 @@ const PortfolioPage: React.FC = () => {
       title: isZh ? '金额' : 'Total',
       dataIndex: 'total_value',
       key: 'total_value',
+      width: 100,
       align: 'right' as const,
       render: (val: number) => val ? `$${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-',
     },
     {
-      title: isZh ? '佣金' : 'Commission',
+      title: isZh ? '佣金' : 'Fee',
       dataIndex: 'commission',
       key: 'commission',
+      width: 70,
       align: 'right' as const,
       render: (val: number) => val ? `$${val.toFixed(2)}` : '-',
     },
     {
-      title: isZh ? '已实现盈亏' : 'Realized P&L',
+      title: isZh ? '已实现盈亏' : 'P&L',
       dataIndex: 'realized_pnl',
       key: 'realized_pnl',
+      width: 90,
       align: 'right' as const,
       render: (val: number | null) => {
         if (val === null || val === undefined) return '-';
         return (
           <Text style={{ color: val >= 0 ? '#52c41a' : '#ff4d4f' }}>
-            {val >= 0 ? '+' : ''}{val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {val >= 0 ? '+' : ''}{val.toFixed(2)}
           </Text>
         );
       },
@@ -505,7 +521,7 @@ const PortfolioPage: React.FC = () => {
               <div style={{ textAlign: 'center', padding: '16px 0' }}>
                 <Progress
                   type="dashboard"
-                  percent={analysis.health_score}
+                  percent={Math.round(analysis.health_score)}
                   strokeColor={getScoreColor(analysis.health_score)}
                   format={(percent) => (
                     <div>
@@ -538,7 +554,7 @@ const PortfolioPage: React.FC = () => {
               <div style={{ textAlign: 'center', padding: '16px 0' }}>
                 <Progress
                   type="dashboard"
-                  percent={analysis.risk_score}
+                  percent={Math.round(analysis.risk_score)}
                   strokeColor={getScoreColor(100 - analysis.risk_score)}
                   format={(percent) => (
                     <div>
@@ -569,7 +585,7 @@ const PortfolioPage: React.FC = () => {
               <div style={{ textAlign: 'center', padding: '16px 0' }}>
                 <Progress
                   type="dashboard"
-                  percent={analysis.diversification_score}
+                  percent={Math.round(analysis.diversification_score)}
                   strokeColor={getScoreColor(analysis.diversification_score)}
                   format={(percent) => (
                     <div>
