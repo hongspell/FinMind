@@ -104,6 +104,15 @@ export const portfolioApi = {
   getRecommendations: async (): Promise<ApiResponse<{ recommendations: PortfolioAnalysis['recommendations'] }>> => {
     return api.get('/portfolio/recommendations');
   },
+
+  // 获取完整的投资组合数据（合并端点 - 推荐使用）
+  getFullData: async (): Promise<ApiResponse<{
+    portfolio: UnifiedPortfolio;
+    analysis: PortfolioAnalysis | null;
+    message?: string;
+  }>> => {
+    return api.get('/portfolio/full');
+  },
 };
 
 // 蒙特卡洛模拟 API

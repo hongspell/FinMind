@@ -8,7 +8,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import type { TechnicalAnalysis } from '../../types/analysis';
 import { colors, signalColors, trendColors } from '../../styles/theme';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 const { Title, Text } = Typography;
 
@@ -19,11 +19,7 @@ interface TechnicalOverviewProps {
 const TechnicalOverview: React.FC<TechnicalOverviewProps> = ({ technical }) => {
   const { overall_signal, trend, signal_confidence, support_levels, resistance_levels } = technical;
   const { t } = useTranslation();
-  const { theme } = useSettingsStore();
-
-  const isDark = theme === 'dark';
-  const cardBg = isDark ? '#1c2128' : '#fafafa';
-  const borderColor = isDark ? '#30363d' : '#e8e8e8';
+  const { cardBg, borderColor } = useThemeColors();
 
   const confidencePercent = Math.round(signal_confidence * 100);
   const confidenceColor = confidencePercent >= 70 ? colors.up : confidencePercent >= 50 ? colors.hold : colors.down;

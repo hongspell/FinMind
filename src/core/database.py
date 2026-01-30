@@ -139,6 +139,13 @@ class DatabaseService:
             return True
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
+            # 清理可能部分创建的连接池
+            if self._pool:
+                try:
+                    await self._pool.close()
+                except Exception:
+                    pass
+                self._pool = None
             self._initialized = False
             return False
 
@@ -497,22 +504,29 @@ class DatabaseService:
         return float((mean_return - risk_free_rate) / std_return)
 
 
-# 全局数据库服务实例
+# 全局数据库服务实例（线程安全）
 _db_service: Optional[DatabaseService] = None
+_db_lock = asyncio.Lock()
 
 
 async def get_database() -> DatabaseService:
-    """获取数据库服务实例"""
+    """获取数据库服务实例（并发安全）"""
     global _db_service
-    if _db_service is None:
-        _db_service = DatabaseService()
-        await _db_service.initialize()
+    if _db_service is not None:
+        return _db_service
+    async with _db_lock:
+        # Double-check locking：锁内再次检查
+        if _db_service is None:
+            service = DatabaseService()
+            await service.initialize()
+            _db_service = service
     return _db_service
 
 
 async def close_database():
     """关闭数据库连接"""
     global _db_service
-    if _db_service:
-        await _db_service.close()
-        _db_service = None
+    async with _db_lock:
+        if _db_service:
+            await _db_service.close()
+            _db_service = None

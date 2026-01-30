@@ -169,13 +169,10 @@ class FutuAdapter(BrokerAdapter):
             row = data.iloc[0]
 
             # 确定货币
-            currency = Currency.HKD  # 富途默认港币
-            if 'currency' in row:
-                curr = str(row['currency']).upper()
-                if curr == 'USD':
-                    currency = Currency.USD
-                elif curr == 'CNY':
-                    currency = Currency.CNY
+            currency = self._parse_currency(
+                str(row['currency']) if 'currency' in row else '',
+                default=Currency.HKD,
+            )
 
             return AccountBalance(
                 total_assets=float(row.get('total_assets', 0)),
@@ -219,11 +216,8 @@ class FutuAdapter(BrokerAdapter):
                 symbol, market = self._parse_futu_code(code)
 
                 # 确定货币
-                currency = Currency.HKD
-                if market == Market.US:
-                    currency = Currency.USD
-                elif market == Market.CN:
-                    currency = Currency.CNY
+                market_currency_map = {Market.US: Currency.USD, Market.CN: Currency.CNY}
+                currency = market_currency_map.get(market, Currency.HKD)
 
                 quantity = float(row.get('qty', 0))
                 avg_cost = float(row.get('cost_price', 0))

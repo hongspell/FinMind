@@ -9,21 +9,26 @@ FinMind - FastAPI REST API服务
 """
 
 import asyncio
+import os
 import uuid
+import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 import redis.asyncio as redis
 
 # 导入路由
 from .broker_routes import router as broker_router
 from .analysis_routes import router as analysis_router
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Pydantic Models
@@ -113,9 +118,25 @@ class RecommendationResponse(BaseModel):
 # 任务存储（生产环境应使用Redis/数据库）
 # ============================================================================
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """添加安全响应头"""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        return response
+
+
 class TaskStore:
     """任务存储管理"""
-    
+
+    _MAX_TASKS = 1000
+    _TASK_TTL_SECONDS = 86400  # 24小时
+
     def __init__(self):
         self._tasks: Dict[str, AnalysisResponse] = {}
         self._redis: Optional[redis.Redis] = None
@@ -126,10 +147,40 @@ class TaskStore:
             self._redis = redis.from_url(url, decode_responses=True)
             await self._redis.ping()
         except Exception:
+            # 连接失败时确保关闭已创建的连接
+            if self._redis:
+                try:
+                    await self._redis.close()
+                except Exception:
+                    pass
+            self._redis = None
+
+    async def close_redis(self):
+        """关闭Redis连接"""
+        if self._redis:
+            try:
+                await self._redis.close()
+            except Exception:
+                pass
             self._redis = None
     
+    def _cleanup_old_tasks(self):
+        """清理已完成的旧任务，防止内存泄漏"""
+        if len(self._tasks) < self._MAX_TASKS:
+            return
+        completed = [
+            (tid, t) for tid, t in self._tasks.items()
+            if t.status in (AnalysisStatus.COMPLETED, AnalysisStatus.FAILED, AnalysisStatus.CANCELLED)
+        ]
+        completed.sort(key=lambda x: x[1].created_at)
+        to_remove = len(self._tasks) - self._MAX_TASKS + 100  # 清理出余量
+        for tid, _ in completed[:to_remove]:
+            del self._tasks[tid]
+
     async def create_task(self, request: AnalysisRequest) -> AnalysisResponse:
         """创建新任务"""
+        self._cleanup_old_tasks()
+
         task_id = str(uuid.uuid4())
         task = AnalysisResponse(
             task_id=task_id,
@@ -154,12 +205,15 @@ class TaskStore:
         """获取任务"""
         if task_id in self._tasks:
             return self._tasks[task_id]
-        
+
         if self._redis:
-            data = await self._redis.hgetall(f"task:{task_id}")
-            if data:
-                return AnalysisResponse(**data)
-        
+            try:
+                data = await self._redis.hgetall(f"task:{task_id}")
+                if data:
+                    return AnalysisResponse(**data)
+            except (ValueError, TypeError):
+                pass
+
         return None
     
     async def update_task(self, task_id: str, **updates) -> Optional[AnalysisResponse]:
@@ -216,23 +270,37 @@ async def lifespan(app: FastAPI):
     await task_store.connect_redis()
     print("FinMind API 启动完成")
     yield
-    # 关闭时
+    # 关闭时 - 清理所有资源
+    await task_store.close_redis()
     print("FinMind API 关闭")
 
+
+_environment = os.environ.get("ENVIRONMENT", "development")
+_is_production = _environment == "production"
 
 app = FastAPI(
     title="FinMind API",
     description="模块化金融AI分析平台 REST API",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
 )
 
-# CORS配置
+# 安全响应头中间件
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS 配置 - 从环境变量读取白名单
+_cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+_allowed_origins = (
+    [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    if _cors_origins_env
+    else ["http://localhost:3000", "http://localhost:5173"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应限制
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -241,6 +309,16 @@ app.add_middleware(
 # 注册路由
 app.include_router(broker_router)
 app.include_router(analysis_router)
+
+
+# 全局异常处理 - 错误信息脱敏
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 # ============================================================================
@@ -532,22 +610,28 @@ async def stream_analysis(task_id: str):
     
     适用于前端实时显示分析进度
     """
+    max_poll_seconds = 3600  # 最多轮询 1 小时
+
     async def event_generator():
-        while True:
+        elapsed = 0
+        while elapsed < max_poll_seconds:
             task = await task_store.get_task(task_id)
             if not task:
                 yield f"event: error\ndata: Task not found\n\n"
                 break
-            
+
             yield f"data: {task.model_dump_json()}\n\n"
-            
-            if task.status in [AnalysisStatus.COMPLETED, 
-                               AnalysisStatus.FAILED, 
+
+            if task.status in [AnalysisStatus.COMPLETED,
+                               AnalysisStatus.FAILED,
                                AnalysisStatus.CANCELLED]:
                 break
-            
+
             await asyncio.sleep(1)
-    
+            elapsed += 1
+        else:
+            yield f"event: timeout\ndata: Stream timeout after {max_poll_seconds}s\n\n"
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream"

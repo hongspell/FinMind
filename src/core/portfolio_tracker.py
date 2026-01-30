@@ -153,7 +153,7 @@ class PortfolioTracker:
 
             total_saved = 0
             for broker_name in self._portfolio.connected_brokers:
-                adapter = self._portfolio._adapters.get(broker_name)
+                adapter = self._portfolio.get_adapter(broker_name)
                 if not adapter:
                     continue
 
@@ -216,11 +216,14 @@ class PortfolioTracker:
         """停止自动追踪"""
         self._running = False
         if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+            if not self._task.done():
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    logger.debug("Portfolio tracker task cancelled")
+                except Exception as e:
+                    logger.error(f"Error stopping tracker task: {e}")
             self._task = None
         logger.info("Portfolio tracker stopped")
 

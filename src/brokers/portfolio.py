@@ -194,6 +194,14 @@ class UnifiedPortfolio:
         """已连接的券商列表"""
         return [name for name, adapter in self._adapters.items() if adapter.is_connected]
 
+    def get_adapter(self, broker_type: str) -> Optional[BrokerAdapter]:
+        """获取指定券商的适配器"""
+        return self._adapters.get(broker_type.lower())
+
+    def get_all_adapter_names(self) -> List[str]:
+        """获取所有已配置的券商名称"""
+        return list(self._adapters.keys())
+
     def add_broker(self, config: BrokerConfig) -> None:
         """
         添加券商配置
@@ -227,23 +235,42 @@ class UnifiedPortfolio:
             del self._configs[broker_type]
             logger.info(f"Removed broker: {broker_type}")
 
-    async def connect_all(self) -> Dict[str, bool]:
+    async def connect_all(self, timeout: int = 30) -> Dict[str, bool]:
         """
         连接所有券商
+
+        Args:
+            timeout: 连接超时时间（秒）
 
         Returns:
             Dict[str, bool]: 各券商连接状态
         """
         results = {}
         tasks = []
+        broker_names = []
 
         for name, adapter in self._adapters.items():
             tasks.append(self._connect_broker(name, adapter))
+            broker_names.append(name)
 
-        for result in await asyncio.gather(*tasks, return_exceptions=True):
-            name, success = result if isinstance(result, tuple) else (None, False)
-            if name:
-                results[name] = success
+        try:
+            task_results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+            for name, result in zip(broker_names, task_results):
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to connect to {name}: {result}")
+                    results[name] = False
+                elif isinstance(result, tuple):
+                    _, success = result
+                    results[name] = success
+                else:
+                    results[name] = False
+        except asyncio.TimeoutError:
+            logger.error(f"Broker connection timed out after {timeout}s")
+            for name in broker_names:
+                results.setdefault(name, False)
 
         return results
 

@@ -4,6 +4,7 @@ FinMind - 高级分析 API 路由
 提供蒙特卡洛模拟和投资组合分析 API 接口
 """
 
+import asyncio
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Depends
@@ -17,6 +18,14 @@ from ..core.portfolio_tracker import PortfolioTracker
 from ..core.database import get_database
 
 logger = logging.getLogger(__name__)
+
+
+def _build_position_weight_map(positions, total_value: float) -> dict:
+    """构建 symbol -> weight 字典，避免 O(n*m) 嵌套循环"""
+    if total_value <= 0:
+        return {}
+    return {p.symbol.upper(): p.market_value / total_value for p in positions}
+
 
 router = APIRouter(prefix="/api/v1", tags=["Advanced Analysis"])
 
@@ -185,8 +194,8 @@ async def simulate_price(request: MonteCarloRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Monte Carlo simulation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Monte Carlo simulation error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Monte Carlo simulation failed")
 
 
 @router.get("/monte-carlo/volatility/{symbol}")
@@ -279,17 +288,19 @@ async def analyze_portfolio(
         var_95 = analysis_result.risk_metrics.var_95
         var_99 = analysis_result.risk_metrics.var_99
 
-        # 尝试从历史数据计算最大回撤
+        # 尝试从历史数据计算最大回撤（并行化）
         max_drawdown = 0.0
         historical_volatility = portfolio_volatility
         historical_sharpe = 0.0
         try:
             tracker = PortfolioTracker(portfolio)
-            max_drawdown = await tracker.get_max_drawdown(days=365)
-            hist_vol = await tracker.get_volatility(days=252)
+            max_drawdown, hist_vol, historical_sharpe = await asyncio.gather(
+                tracker.get_max_drawdown(days=365),
+                tracker.get_volatility(days=252),
+                tracker.get_sharpe_ratio(days=252),
+            )
             if hist_vol > 0:
                 historical_volatility = hist_vol
-            historical_sharpe = await tracker.get_sharpe_ratio(days=252)
         except Exception as e:
             logger.debug(f"Could not calculate historical metrics: {e}")
 
@@ -304,15 +315,11 @@ async def analyze_portfolio(
             "beta": float(analysis_result.risk_metrics.beta),
         }
 
-        # 生成建议 - 基于真实持仓
+        # 生成建议 - 基于真实持仓（O(n+m) 字典查找代替 O(n*m) 嵌套循环）
+        weight_map = _build_position_weight_map(positions, total_value)
         recommendations = []
         for rec in analysis_result.recommendations:
-            # 找到对应持仓的权重
-            pos_weight = 0
-            for p in positions:
-                if p.symbol.upper() == rec.symbol.upper():
-                    pos_weight = p.market_value / total_value if total_value > 0 else 0
-                    break
+            pos_weight = weight_map.get(rec.symbol.upper(), 0)
 
             recommendations.append({
                 "symbol": rec.symbol,
@@ -533,14 +540,10 @@ async def get_portfolio_recommendations(
         total_value = portfolio_summary.balance.total_assets
         positions = portfolio_summary.positions
 
+        weight_map = _build_position_weight_map(positions, total_value)
         recommendations = []
         for rec in analysis_result.recommendations:
-            # 找到对应持仓的权重
-            pos_weight = 0
-            for p in positions:
-                if p.symbol.upper() == rec.symbol.upper():
-                    pos_weight = p.market_value / total_value if total_value > 0 else 0
-                    break
+            pos_weight = weight_map.get(rec.symbol.upper(), 0)
 
             recommendations.append({
                 "symbol": rec.symbol,
@@ -566,5 +569,199 @@ async def get_portfolio_recommendations(
             "success": False,
             "error": "calculation_failed",
             "message": f"获取建议失败: {str(e)}",
+            "data": None
+        }
+
+
+@router.get("/portfolio/full", response_model=dict)
+async def get_portfolio_full(
+    portfolio: UnifiedPortfolio = Depends(get_portfolio)
+):
+    """
+    获取完整的投资组合数据（合并端点）
+
+    一次性返回投资组合基本信息和分析数据，避免多次请求的竞态条件。
+    """
+    try:
+        # 检查是否有连接的券商
+        if not portfolio.connected_brokers:
+            return {
+                "success": False,
+                "error": "no_broker_connected",
+                "message": "尚未连接任何券商账户",
+                "data": None
+            }
+
+        # 获取统一投资组合数据（只调用一次）
+        try:
+            unified_summary = await portfolio.get_unified_summary()
+        except Exception as e:
+            logger.error(f"Failed to get unified summary: {e}")
+            return {
+                "success": False,
+                "error": "data_fetch_failed",
+                "message": f"获取投资组合数据失败: {str(e)}",
+                "data": None
+            }
+
+        # 构建基本投资组合数据
+        portfolio_data = {
+            "total_assets": unified_summary.total_assets,
+            "total_cash": unified_summary.total_cash,
+            "total_market_value": unified_summary.total_market_value,
+            "total_unrealized_pnl": unified_summary.total_unrealized_pnl,
+            "total_realized_pnl": unified_summary.total_realized_pnl,
+            "broker_allocation": unified_summary.broker_allocation,
+            "market_allocation": unified_summary.market_allocation,
+            "currency_exposure": unified_summary.currency_exposure,
+            "top_holdings": unified_summary.top_holdings,
+            "broker_count": unified_summary.broker_count,
+            "position_count": unified_summary.position_count,
+            "last_updated": unified_summary.last_updated.isoformat(),
+        }
+
+        # 如果没有持仓，返回基本数据（无分析）
+        if not unified_summary.aggregated_positions:
+            return {
+                "success": True,
+                "data": {
+                    "portfolio": portfolio_data,
+                    "analysis": None,
+                    "message": "当前投资组合没有持仓，无法进行分析"
+                }
+            }
+
+        # 从 unified_summary 构建 portfolio_summary 用于分析（避免重复 API 调用）
+        from ..brokers.base import Position, AccountBalance, PortfolioSummary, PositionSide, Currency
+
+        positions: List[Position] = []
+        for agg in unified_summary.aggregated_positions:
+            pos = Position(
+                symbol=agg.symbol,
+                market=agg.market,
+                quantity=agg.total_quantity,
+                avg_cost=agg.avg_cost,
+                current_price=agg.current_price,
+                market_value=agg.total_market_value,
+                unrealized_pnl=agg.total_unrealized_pnl,
+                unrealized_pnl_percent=agg.unrealized_pnl_percent,
+                realized_pnl=0.0,
+                side=PositionSide.LONG,
+                currency=agg.currency,
+            )
+            positions.append(pos)
+
+        balance = AccountBalance(
+            total_assets=unified_summary.total_assets,
+            cash=unified_summary.total_cash,
+            market_value=unified_summary.total_market_value,
+            buying_power=unified_summary.total_cash,
+            currency=Currency.USD,
+            day_pnl=unified_summary.total_realized_pnl,
+            total_pnl=unified_summary.total_unrealized_pnl,
+        )
+
+        portfolio_summary = PortfolioSummary(
+            broker="Unified",
+            account_id="all",
+            balance=balance,
+            positions=positions,
+            market_allocation=unified_summary.market_allocation,
+            currency_exposure=unified_summary.currency_exposure,
+            last_updated=unified_summary.last_updated,
+        )
+
+        # 进行分析
+        analyzer = PortfolioAnalyzer()
+        analysis_result = analyzer.analyze(portfolio_summary)
+
+        # 计算集中度指标
+        total_value = unified_summary.total_assets
+        weights = [p.market_value / total_value for p in positions] if total_value > 0 else []
+        hhi = sum(w**2 for w in weights) if weights else 0
+        sorted_weights = sorted(weights, reverse=True) if weights else []
+        top_holding_weight = sorted_weights[0] if sorted_weights else 0
+        top_3_weight = sum(sorted_weights[:3]) if len(sorted_weights) >= 3 else sum(sorted_weights)
+        top_5_weight = sum(sorted_weights[:5]) if len(sorted_weights) >= 5 else sum(sorted_weights)
+
+        # 风险指标
+        portfolio_volatility = analysis_result.risk_metrics.expected_volatility
+        var_95 = analysis_result.risk_metrics.var_95
+        var_99 = analysis_result.risk_metrics.var_99
+
+        # 尝试从历史数据计算指标（并行化）
+        max_drawdown = 0.0
+        historical_volatility = portfolio_volatility
+        historical_sharpe = 0.0
+        try:
+            tracker = PortfolioTracker(portfolio)
+            max_drawdown, hist_vol, historical_sharpe = await asyncio.gather(
+                tracker.get_max_drawdown(days=365),
+                tracker.get_volatility(days=252),
+                tracker.get_sharpe_ratio(days=252),
+            )
+            if hist_vol > 0:
+                historical_volatility = hist_vol
+        except Exception as e:
+            logger.debug(f"Could not calculate historical metrics: {e}")
+
+        risk_metrics = {
+            "var_95": float(var_95),
+            "var_99": float(var_99),
+            "cvar_95": float(var_95 * 1.2),
+            "cvar_99": float(var_99 * 1.2),
+            "volatility": float(historical_volatility),
+            "sharpe_ratio": float(historical_sharpe) if historical_sharpe != 0 else (float(analysis_result.risk_metrics.win_rate / 50) if analysis_result.risk_metrics.win_rate > 0 else 0.5),
+            "max_drawdown": float(max_drawdown),
+            "beta": float(analysis_result.risk_metrics.beta),
+        }
+
+        # 生成建议（O(n+m) 字典查找代替 O(n*m) 嵌套循环）
+        weight_map = _build_position_weight_map(positions, total_value)
+        recommendations = []
+        for rec in analysis_result.recommendations:
+            pos_weight = weight_map.get(rec.symbol.upper(), 0)
+
+            recommendations.append({
+                "symbol": rec.symbol,
+                "action": rec.action,
+                "reason": rec.reason,
+                "priority": rec.urgency,
+                "current_weight": pos_weight,
+                "suggested_weight": rec.target_weight,
+            })
+
+        # 构建分析数据
+        analysis_data = {
+            "health_score": float(analysis_result.health_score),
+            "risk_score": float(analysis_result.risk_score),
+            "diversification_score": float(analysis_result.diversification_score),
+            "risk_metrics": risk_metrics,
+            "recommendations": recommendations,
+            "concentration_risk": {
+                "top_holding_weight": float(top_holding_weight),
+                "top_3_weight": float(top_3_weight),
+                "top_5_weight": float(top_5_weight),
+                "hhi_index": float(hhi),
+            },
+            "total_unrealized_pnl": float(analysis_result.risk_metrics.total_unrealized_pnl),
+            "total_unrealized_pnl_percent": float(analysis_result.risk_metrics.total_unrealized_pnl_percent),
+            "analysis_timestamp": datetime.utcnow().isoformat(),
+        }
+
+        return {
+            "success": True,
+            "data": {
+                "portfolio": portfolio_data,
+                "analysis": analysis_data,
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Portfolio full data error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": "fetch_failed",
+            "message": f"获取投资组合数据失败: {str(e)}",
             "data": None
         }

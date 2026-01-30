@@ -104,13 +104,19 @@ class MemoryCache(CacheBackend):
                 del self._cache[key]
                 return None
 
+            # LRU：访问时移动到末尾（最近使用）
+            del self._cache[key]
+            self._cache[key] = (value, expire_time)
+
             return value
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         async with self._lock:
-            # LRU 淘汰
-            if len(self._cache) >= self._max_items and key not in self._cache:
-                # 删除最老的项
+            # 如果 key 已存在，先删除再插入以更新顺序
+            if key in self._cache:
+                del self._cache[key]
+            elif len(self._cache) >= self._max_items:
+                # LRU 淘汰：字典头部是最久未访问的
                 oldest_key = next(iter(self._cache))
                 del self._cache[oldest_key]
 
@@ -555,22 +561,29 @@ class CacheKeys:
 # 全局缓存实例
 # =============================================================================
 
-# 全局缓存服务（延迟初始化）
+# 全局缓存服务（延迟初始化，线程安全）
 _cache_service: Optional[CacheService] = None
+_cache_lock = asyncio.Lock()
 
 
 async def get_cache_service() -> CacheService:
-    """获取全局缓存服务"""
+    """获取全局缓存服务（并发安全）"""
     global _cache_service
-    if _cache_service is None:
-        _cache_service = CacheService()
-        await _cache_service.initialize()
+    if _cache_service is not None:
+        return _cache_service
+    async with _cache_lock:
+        # Double-check locking：锁内再次检查
+        if _cache_service is None:
+            service = CacheService()
+            await service.initialize()
+            _cache_service = service
     return _cache_service
 
 
 async def shutdown_cache_service() -> None:
     """关闭全局缓存服务"""
     global _cache_service
-    if _cache_service:
-        await _cache_service.shutdown()
-        _cache_service = None
+    async with _cache_lock:
+        if _cache_service:
+            await _cache_service.shutdown()
+            _cache_service = None

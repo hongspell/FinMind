@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Card, Form, Select, Switch, Typography, Space, Divider, Button, message, Popconfirm, Row, Col, Tag, Input, Collapse, Spin, Badge, InputNumber, Modal, Alert } from 'antd';
 import {
   SettingOutlined,
@@ -27,6 +27,7 @@ import type { BrokerType, BrokerStatus, BrokerConfig } from '../types/broker';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useAnalysisStore } from '../stores/analysisStore';
+import { useThemeColors } from '../hooks/useThemeColors';
 import { configApi, ConfigItem } from '../services/api';
 
 const { Title, Text } = Typography;
@@ -73,7 +74,7 @@ const SettingsPage: React.FC = () => {
   const isZh = i18n.language?.startsWith('zh');
 
   // 加载配置
-  const loadConfigs = async () => {
+  const loadConfigs = useCallback(async () => {
     setConfigLoading(true);
     try {
       const response = await configApi.getConfig();
@@ -85,7 +86,7 @@ const SettingsPage: React.FC = () => {
     } finally {
       setConfigLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadConfigs();
@@ -93,23 +94,24 @@ const SettingsPage: React.FC = () => {
   }, []);
 
   // 加载券商状态
-  const loadBrokerStatus = async () => {
+  const loadBrokerStatus = useCallback(async () => {
     setBrokerLoading(true);
     try {
-      const response = await brokerApi.getStatus() as any;
-      // API 直接返回 {brokers: [...]}
-      if (response.brokers) {
-        setBrokerStatuses(response.brokers);
+      const response = await brokerApi.getStatus();
+      // API 直接返回 {brokers: [...]}，拦截器已解包 response.data
+      const data = response as unknown as { brokers: BrokerStatus[] };
+      if (data.brokers) {
+        setBrokerStatuses(data.brokers);
       }
     } catch (error) {
       console.error('Failed to load broker status:', error);
     } finally {
       setBrokerLoading(false);
     }
-  };
+  }, []);
 
   // 连接券商
-  const handleConnectBroker = async (values: any) => {
+  const handleConnectBroker = useCallback(async (values: any) => {
     if (!selectedBrokerType) return;
 
     setConnectingBroker(selectedBrokerType);
@@ -118,47 +120,49 @@ const SettingsPage: React.FC = () => {
         broker_type: selectedBrokerType,
         ...values,
       };
-      const response = await brokerApi.connect(config) as any;
-      // API 直接返回 {connected, account_id, error}，不是包装在 success/data 中
-      if (response.connected) {
+      const response = await brokerApi.connect(config);
+      // API 直接返回 {connected, account_id, error}，拦截器已解包 response.data
+      const data = response as unknown as { connected: boolean; account_id?: string; error?: string };
+      if (data.connected) {
         message.success(isZh ? '券商连接成功' : 'Broker connected successfully');
         setBrokerModalVisible(false);
         brokerForm.resetFields();
         loadBrokerStatus();
       } else {
-        message.error(response.error || (isZh ? '连接失败' : 'Connection failed'));
+        message.error(data.error || (isZh ? '连接失败' : 'Connection failed'));
       }
-    } catch (error: any) {
-      message.error(error.message || (isZh ? '连接失败' : 'Connection failed'));
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : (isZh ? '连接失败' : 'Connection failed');
+      message.error(msg);
     } finally {
       setConnectingBroker(null);
     }
-  };
+  }, [selectedBrokerType, isZh, brokerForm, loadBrokerStatus]);
 
   // 断开券商连接
-  const handleDisconnectBroker = async (brokerType: BrokerType) => {
+  const handleDisconnectBroker = useCallback(async (brokerType: BrokerType) => {
     try {
       await brokerApi.disconnect(brokerType);
       message.success(isZh ? '已断开连接' : 'Disconnected');
       loadBrokerStatus();
-    } catch (error: any) {
-      message.error(error.message);
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : 'Disconnect failed');
     }
-  };
+  }, [isZh, loadBrokerStatus]);
 
   // 设置演示模式
-  const handleSetupDemo = async () => {
+  const handleSetupDemo = useCallback(async () => {
     setBrokerLoading(true);
     try {
       await brokerApi.setupDemo();
       message.success(isZh ? '演示环境已启用' : 'Demo environment enabled');
       loadBrokerStatus();
-    } catch (error: any) {
-      message.error(error.message);
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : 'Setup failed');
     } finally {
       setBrokerLoading(false);
     }
-  };
+  }, [isZh, loadBrokerStatus]);
 
   // 打开连接对话框
   const openConnectModal = (brokerType: BrokerType) => {
@@ -199,7 +203,7 @@ const SettingsPage: React.FC = () => {
   };
 
   // 保存配置
-  const handleSaveConfigs = async () => {
+  const handleSaveConfigs = useCallback(async () => {
     const updates = Object.entries(configUpdates)
       .filter(([_, value]) => value && !value.startsWith('*'))
       .map(([key, value]) => ({ key, value }));
@@ -224,7 +228,7 @@ const SettingsPage: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  };
+  }, [configUpdates, isZh, loadConfigs]);
 
   const handleLanguageChange = (value: string) => {
     i18n.changeLanguage(value);
@@ -253,10 +257,7 @@ const SettingsPage: React.FC = () => {
   };
 
   // 主题相关样式
-  const isDark = theme === 'dark';
-  const cardBg = isDark ? '#1c2128' : '#fafafa';
-  const borderColor = isDark ? '#30363d' : '#e8e8e8';
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
+  const { cardBg, borderColor, secondaryColor } = useThemeColors();
 
   // 按分类分组配置
   const configsByCategory = configs.reduce((acc, config) => {

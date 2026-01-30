@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   Card,
   Row,
@@ -6,7 +6,6 @@ import {
   Typography,
   Space,
   Spin,
-  Alert,
   Table,
   Tag,
   Progress,
@@ -29,9 +28,30 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { useSettingsStore } from '../stores/settingsStore';
 import { brokerApi, portfolioApi } from '../services/brokerApi';
-import type { UnifiedPortfolio, PortfolioAnalysis, Trade } from '../types/broker';
+import { useThemeColors } from '../hooks/useThemeColors';
+import type { UnifiedPortfolio, PortfolioAnalysis, Trade, BrokerType } from '../types/broker';
+
+// API 响应类型
+interface FullDataResponse {
+  success: boolean;
+  error?: string;
+  message?: string;
+  data?: {
+    portfolio: UnifiedPortfolio | null;
+    analysis: PortfolioAnalysis | null;
+  };
+}
+
+interface BrokerStatusItem {
+  broker_type: string;
+  connected: boolean;
+  account_id?: string;
+}
+
+interface BrokerStatusResponse {
+  brokers: BrokerStatusItem[];
+}
 
 const { Title, Text } = Typography;
 
@@ -63,139 +83,138 @@ const getActionColor = (action: string): string => {
   }
 };
 
+// 页面数据类型
+interface PageData {
+  portfolio: UnifiedPortfolio | null;
+  analysis: PortfolioAnalysis | null;
+  trades: Trade[];
+  brokerConnected: boolean;
+}
+
+// 初始数据
+const initialData: PageData = {
+  portfolio: null,
+  analysis: null,
+  trades: [],
+  brokerConnected: false,
+};
+
 const PortfolioPage: React.FC = () => {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
-  const { theme } = useSettingsStore();
   const isZh = i18n.language?.startsWith('zh');
-  const isDark = theme === 'dark';
+  const { secondaryColor } = useThemeColors();
 
-  // 状态
+  // 单一数据状态
+  const [data, setData] = useState<PageData>(initialData);
   const [loading, setLoading] = useState(true);
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [portfolio, setPortfolio] = useState<UnifiedPortfolio | null>(null);
-  const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
-  const [trades, setTrades] = useState<Trade[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [brokerStatus, setBrokerStatus] = useState<'unknown' | 'connected' | 'disconnected'>('unknown');
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // 主题颜色
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
+  // 提取交易历史的公共逻辑
+  const fetchTrades = useCallback(async (): Promise<Trade[]> => {
+    const statusRes = await brokerApi.getStatus() as unknown as BrokerStatusResponse;
+    const connectedBrokers = (statusRes?.brokers || []).filter(b => b.connected);
+    const allTrades: Trade[] = [];
 
-  // 加载投资组合数据
-  const loadPortfolio = async (): Promise<boolean> => {
-    try {
-      // 先检查券商连接状态
-      const statusRes = await brokerApi.getStatus();
-      const brokers = (statusRes as any)?.brokers || [];
-      const hasConnected = brokers.some((b: any) => b.connected);
-
-      if (!hasConnected) {
-        setBrokerStatus('disconnected');
-        return false;
+    for (const broker of connectedBrokers) {
+      try {
+        const tradesRes = await brokerApi.getTrades(broker.broker_type as BrokerType, 7);
+        if (Array.isArray(tradesRes)) {
+          allTrades.push(...tradesRes);
+        }
+      } catch (e) {
+        console.error(`Failed to get trades from ${broker.broker_type}:`, e);
       }
-
-      setBrokerStatus('connected');
-
-      // 获取投资组合数据
-      const portfolioRes = await brokerApi.getUnifiedPortfolio();
-      if (portfolioRes && (portfolioRes as any).total_assets !== undefined) {
-        setPortfolio(portfolioRes as any);
-        return true;
-      }
-      return false;
-    } catch (err: any) {
-      console.error('Portfolio load error:', err);
-      // 检查是否是"未连接"错误
-      if (err.message?.includes('No brokers connected') || err.message?.includes('not connected')) {
-        setBrokerStatus('disconnected');
-      }
-      return false;
     }
-  };
 
-  // 加载分析数据（在投资组合加载成功后调用）
-  const loadAnalysis = async () => {
-    setAnalysisLoading(true);
-    try {
-      const analysisRes = await portfolioApi.analyze();
-      // portfolio analyze API 返回 {success, data} 格式
-      if ((analysisRes as any)?.success && (analysisRes as any)?.data) {
-        setAnalysis((analysisRes as any).data);
-      }
-    } catch (err: any) {
-      console.error('Analysis load error:', err);
-    } finally {
-      setAnalysisLoading(false);
-    }
-  };
+    allTrades.sort((a, b) => {
+      const timeA = a.trade_time ? new Date(a.trade_time).getTime() : 0;
+      const timeB = b.trade_time ? new Date(b.trade_time).getTime() : 0;
+      return timeB - timeA;
+    });
 
-  // 主数据加载函数
-  const loadData = async () => {
+    return allTrades;
+  }, []);
+
+  // 加载所有数据（使用合并端点）
+  const loadAllData = useCallback(async () => {
     setLoading(true);
-    setError(null);
-    setBrokerStatus('unknown');
-    setPortfolio(null);
-    setAnalysis(null);
+
+    const newData: PageData = {
+      portfolio: null,
+      analysis: null,
+      trades: [],
+      brokerConnected: false,
+    };
 
     try {
-      const portfolioLoaded = await loadPortfolio();
+      const fullData = await portfolioApi.getFullData() as FullDataResponse;
 
-      // 如果投资组合加载成功，加载分析数据
-      if (portfolioLoaded) {
-        // 不等待分析完成，让它在后台加载
-        loadAnalysis();
+      if (!fullData?.success) {
+        if (fullData?.error === 'no_broker_connected') {
+          newData.brokerConnected = false;
+        } else {
+          console.error('Failed to get portfolio data:', fullData?.message);
+        }
+        setData(newData);
+        setLoading(false);
+        return;
       }
-    } catch (err: any) {
-      console.error('Data load error:', err);
+
+      newData.brokerConnected = true;
+      if (fullData.data?.portfolio) {
+        newData.portfolio = fullData.data.portfolio;
+      }
+      if (fullData.data?.analysis) {
+        newData.analysis = fullData.data.analysis;
+      }
+
+      // 获取交易历史
+      try {
+        newData.trades = await fetchTrades();
+      } catch (e) {
+        console.error('Failed to get trades:', e);
+      }
+
+      setData(newData);
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      setData(newData);
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchTrades]);
 
-  // 加载交易历史
-  const loadTrades = async (days: number = 7) => {
+  // 单独刷新交易历史
+  const refreshTrades = useCallback(async () => {
+    if (!data.brokerConnected) return;
+
     setTradesLoading(true);
     try {
-      // 获取所有已连接的券商
-      const statusRes = await brokerApi.getStatus().catch(() => null);
-      const connectedBrokers = (statusRes as any)?.brokers?.filter((b: any) => b.connected) || [];
-
-      // 从所有已连接券商获取交易历史
-      const allTrades: Trade[] = [];
-      for (const broker of connectedBrokers) {
-        try {
-          const tradesRes = await brokerApi.getTrades(broker.broker_type, days);
-          if (Array.isArray(tradesRes)) {
-            allTrades.push(...tradesRes);
-          }
-        } catch (err) {
-          console.error(`Failed to load trades from ${broker.broker_type}:`, err);
-        }
-      }
-
-      // 按交易时间排序（最新在前）
-      allTrades.sort((a, b) => {
-        const timeA = a.trade_time ? new Date(a.trade_time).getTime() : 0;
-        const timeB = b.trade_time ? new Date(b.trade_time).getTime() : 0;
-        return timeB - timeA;
-      });
-
-      setTrades(allTrades);
-    } catch (err) {
-      console.error('Failed to load trades:', err);
+      const allTrades = await fetchTrades();
+      setData(prev => ({ ...prev, trades: allTrades }));
+    } catch (e) {
+      console.error('Failed to refresh trades:', e);
     } finally {
       setTradesLoading(false);
     }
-  };
+  }, [data.brokerConnected, fetchTrades]);
 
+  // 初始加载 + 清理
   useEffect(() => {
-    loadData();
-    loadTrades();
-  }, []);
+    loadAllData();
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 持仓表格列 - 匹配 API 返回的 top_holdings 结构
+  // 解构数据
+  const { portfolio, analysis, trades, brokerConnected } = data;
+
+  // 持仓表格列
   const positionColumns = useMemo(() => [
     {
       title: isZh ? '股票' : 'Symbol',
@@ -339,7 +358,6 @@ const PortfolioPage: React.FC = () => {
       render: (val: string) => {
         if (!val) return '-';
         const date = new Date(val);
-        // 格式: MM/DD HH:mm (更紧凑的格式)
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const day = String(date.getDate()).padStart(2, '0');
         const hours = String(date.getHours()).padStart(2, '0');
@@ -418,9 +436,7 @@ const PortfolioPage: React.FC = () => {
     },
   ], [isZh, navigate]);
 
-  // 如果没有连接任何券商（使用明确的状态判断）
-  const hasNoBrokers = !loading && brokerStatus === 'disconnected';
-
+  // 加载中
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: 400, gap: 16 }}>
@@ -432,23 +448,8 @@ const PortfolioPage: React.FC = () => {
     );
   }
 
-  if (error) {
-    return (
-      <Alert
-        message={isZh ? '加载失败' : 'Failed to load'}
-        description={error}
-        type="error"
-        showIcon
-        action={
-          <Button size="small" onClick={() => loadData()}>
-            {isZh ? '重试' : 'Retry'}
-          </Button>
-        }
-      />
-    );
-  }
-
-  if (hasNoBrokers) {
+  // 未连接券商
+  if (!brokerConnected) {
     return (
       <div>
         <Title level={3} style={{ marginBottom: 24 }}>
@@ -494,7 +495,7 @@ const PortfolioPage: React.FC = () => {
           <Text type="secondary">
             {isZh ? '最后更新' : 'Updated'}: {portfolio?.last_updated ? new Date(portfolio.last_updated).toLocaleString() : '-'}
           </Text>
-          <Button icon={<ReloadOutlined />} onClick={() => loadData()}>
+          <Button icon={<ReloadOutlined />} onClick={loadAllData}>
             {isZh ? '刷新' : 'Refresh'}
           </Button>
         </Space>
@@ -506,7 +507,7 @@ const PortfolioPage: React.FC = () => {
           <Card size="small">
             <Statistic
               title={isZh ? '总资产' : 'Total Value'}
-              value={(portfolio as any)?.total_assets || 0}
+              value={portfolio?.total_assets || 0}
               precision={2}
               prefix="$"
               valueStyle={{ color: '#1890ff' }}
@@ -555,7 +556,7 @@ const PortfolioPage: React.FC = () => {
       </Row>
 
       {/* Scores and Risk Metrics */}
-      {(analysis || analysisLoading) && (
+      {analysis && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col xs={24} lg={8}>
             <Card
@@ -566,30 +567,27 @@ const PortfolioPage: React.FC = () => {
                 </Space>
               }
               size="small"
-              loading={analysisLoading && !analysis}
             >
-              {analysis && (
-                <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                  <Progress
-                    type="dashboard"
-                    percent={Math.round(analysis.health_score)}
-                    strokeColor={getScoreColor(analysis.health_score)}
-                    format={(percent) => (
-                      <div>
-                        <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
-                        <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
-                      </div>
-                    )}
-                  />
-                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                    {analysis.health_score >= 80
-                      ? (isZh ? '投资组合状态良好' : 'Portfolio is healthy')
-                      : analysis.health_score >= 60
-                      ? (isZh ? '投资组合状态一般' : 'Portfolio needs attention')
-                      : (isZh ? '投资组合需要优化' : 'Portfolio needs optimization')}
-                  </Text>
-                </div>
-              )}
+              <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                <Progress
+                  type="dashboard"
+                  percent={Math.round(analysis.health_score)}
+                  strokeColor={getScoreColor(analysis.health_score)}
+                  format={(percent) => (
+                    <div>
+                      <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
+                      <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
+                    </div>
+                  )}
+                />
+                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                  {analysis.health_score >= 80
+                    ? (isZh ? '投资组合状态良好' : 'Portfolio is healthy')
+                    : analysis.health_score >= 60
+                    ? (isZh ? '投资组合状态一般' : 'Portfolio needs attention')
+                    : (isZh ? '投资组合需要优化' : 'Portfolio needs optimization')}
+                </Text>
+              </div>
             </Card>
           </Col>
 
@@ -602,30 +600,27 @@ const PortfolioPage: React.FC = () => {
                 </Space>
               }
               size="small"
-              loading={analysisLoading && !analysis}
             >
-              {analysis && (
-                <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                  <Progress
-                    type="dashboard"
-                    percent={Math.round(analysis.risk_score)}
-                    strokeColor={getScoreColor(100 - analysis.risk_score)}
-                    format={(percent) => (
-                      <div>
-                        <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
-                        <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
-                      </div>
-                    )}
-                  />
-                  {riskLevel && (
-                    <div style={{ marginTop: 8, textAlign: 'center' }}>
-                      <Tag color={riskLevel.color}>
-                        {riskLevel.level}
-                      </Tag>
+              <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                <Progress
+                  type="dashboard"
+                  percent={Math.round(analysis.risk_score)}
+                  strokeColor={getScoreColor(100 - analysis.risk_score)}
+                  format={(percent) => (
+                    <div>
+                      <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
+                      <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
                     </div>
                   )}
-                </div>
-              )}
+                />
+                {riskLevel && (
+                  <div style={{ marginTop: 8, textAlign: 'center' }}>
+                    <Tag color={riskLevel.color}>
+                      {riskLevel.level}
+                    </Tag>
+                  </div>
+                )}
+              </div>
             </Card>
           </Col>
 
@@ -638,28 +633,25 @@ const PortfolioPage: React.FC = () => {
                 </Space>
               }
               size="small"
-              loading={analysisLoading && !analysis}
             >
-              {analysis && (
-                <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                  <Progress
-                    type="dashboard"
-                    percent={Math.round(analysis.diversification_score)}
-                    strokeColor={getScoreColor(analysis.diversification_score)}
-                    format={(percent) => (
-                      <div>
-                        <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
-                        <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
-                      </div>
-                    )}
-                  />
-                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                    {analysis.diversification_score >= 70
-                      ? (isZh ? '分散化良好' : 'Well diversified')
-                      : (isZh ? '集中度较高' : 'Concentrated portfolio')}
-                  </Text>
-                </div>
-              )}
+              <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                <Progress
+                  type="dashboard"
+                  percent={Math.round(analysis.diversification_score)}
+                  strokeColor={getScoreColor(analysis.diversification_score)}
+                  format={(percent) => (
+                    <div>
+                      <div style={{ fontSize: 28, fontWeight: 'bold' }}>{percent}</div>
+                      <div style={{ fontSize: 12, color: secondaryColor }}>/ 100</div>
+                    </div>
+                  )}
+                />
+                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                  {analysis.diversification_score >= 70
+                    ? (isZh ? '分散化良好' : 'Well diversified')
+                    : (isZh ? '集中度较高' : 'Concentrated portfolio')}
+                </Text>
+              </div>
             </Card>
           </Col>
         </Row>
@@ -782,14 +774,14 @@ const PortfolioPage: React.FC = () => {
           <Space>
             <BankOutlined />
             <span>{isZh ? '持仓明细' : 'Positions'}</span>
-            <Tag>{(portfolio as any)?.position_count || 0}</Tag>
+            <Tag>{portfolio?.position_count || 0}</Tag>
           </Space>
         }
         size="small"
         style={{ marginBottom: 24 }}
       >
         <Table
-          dataSource={(portfolio as any)?.top_holdings || []}
+          dataSource={portfolio?.top_holdings || []}
           columns={positionColumns}
           rowKey={(record) => `${record.symbol}-${record.market || 'US'}`}
           pagination={{ pageSize: 10, showSizeChanger: true }}
@@ -814,7 +806,7 @@ const PortfolioPage: React.FC = () => {
             size="small"
             icon={<ReloadOutlined />}
             loading={tradesLoading}
-            onClick={() => loadTrades()}
+            onClick={refreshTrades}
           >
             {isZh ? '刷新' : 'Refresh'}
           </Button>

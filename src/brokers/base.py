@@ -297,10 +297,25 @@ class BrokerAdapter(ABC):
     仅提供只读功能，不支持交易。
     """
 
+    _CURRENCY_MAP: Dict[str, 'Currency'] = {
+        "USD": Currency.USD,
+        "HKD": Currency.HKD,
+        "CNY": Currency.CNY,
+        "CNH": Currency.CNY,
+        "EUR": Currency.EUR,
+        "GBP": Currency.GBP,
+        "JPY": Currency.JPY,
+    }
+
     def __init__(self, config: BrokerConfig):
         self.config = config
         self._connected = False
         self._account_id: Optional[str] = None
+
+    @staticmethod
+    def _parse_currency(currency_str: str, default: 'Currency' = Currency.USD) -> 'Currency':
+        """解析货币字符串为 Currency 枚举"""
+        return BrokerAdapter._CURRENCY_MAP.get(currency_str.upper(), default) if currency_str else default
 
     @property
     def broker_name(self) -> str:

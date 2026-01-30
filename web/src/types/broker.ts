@@ -72,15 +72,35 @@ export interface BrokerSummary {
   error?: string;
 }
 
+export interface PortfolioHolding {
+  symbol: string;
+  market?: string;
+  quantity: number;
+  avg_cost: number;
+  current_price: number;
+  market_value: number;
+  unrealized_pnl: number;
+  unrealized_pnl_percent: number;
+  weight: number;
+}
+
 export interface UnifiedPortfolio {
-  total_value: number;
+  total_value?: number;
+  total_assets: number;
   total_cash: number;
   total_market_value: number;
   total_unrealized_pnl: number;
-  total_unrealized_pnl_percent: number;
-  brokers: BrokerSummary[];
-  positions: Position[];
-  positions_by_symbol: Record<string, Position[]>;
+  total_unrealized_pnl_percent?: number;
+  total_realized_pnl?: number;
+  broker_allocation?: Record<string, number>;
+  market_allocation?: Record<string, number>;
+  currency_exposure?: Record<string, number>;
+  top_holdings: PortfolioHolding[];
+  broker_count?: number;
+  position_count: number;
+  brokers?: BrokerSummary[];
+  positions?: Position[];
+  positions_by_symbol?: Record<string, Position[]>;
   last_updated: string;
 }
 

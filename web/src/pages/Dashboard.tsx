@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Card, Row, Col, Typography, Space, Input, List, Tag, Empty } from 'antd';
 import {
   SearchOutlined,
@@ -10,7 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAnalysisStore } from '../stores/analysisStore';
-import { useSettingsStore } from '../stores/settingsStore';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -18,20 +18,13 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { recentSymbols } = useAnalysisStore();
   const { t } = useTranslation();
-  const { theme } = useSettingsStore();
+  const { isDark, textColor, secondaryColor, cardBg, borderColor } = useThemeColors();
 
-  // Theme-aware colors
-  const isDark = theme === 'dark';
-  const textColor = isDark ? '#e6edf3' : '#1f1f1f';
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
-  const cardBg = isDark ? '#1c2128' : '#ffffff';
-  const borderColor = isDark ? '#30363d' : '#e8e8e8';
-
-  const handleSearch = (value: string) => {
+  const handleSearch = useCallback((value: string) => {
     if (value.trim()) {
       navigate(`/analysis/${value.trim().toUpperCase()}`);
     }
-  };
+  }, [navigate]);
 
   // 热门股票示例数据
   const popularStocks = [

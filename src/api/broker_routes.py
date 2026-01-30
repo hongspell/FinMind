@@ -4,6 +4,8 @@ FinMind - 券商 API 路由
 提供券商集成的 REST API 接口。
 """
 
+import logging
+import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
@@ -15,6 +17,60 @@ from ..brokers import (
     AuthenticationError,
 )
 from ..brokers.portfolio import UnifiedPortfolio, create_broker_adapter
+
+logger = logging.getLogger(__name__)
+
+_SYMBOL_PATTERN = re.compile(r'^[A-Za-z0-9.\-]{1,20}$')
+_VALID_BROKER_TYPES = frozenset({"ibkr", "futu", "tiger"})
+
+
+def validate_symbol(symbol: str) -> str:
+    """验证股票代码格式"""
+    if not _SYMBOL_PATTERN.match(symbol):
+        raise HTTPException(status_code=400, detail="Invalid symbol format")
+    return symbol
+
+
+def validate_broker_type(broker_type: str) -> str:
+    """验证券商类型"""
+    bt = broker_type.lower()
+    if bt not in _VALID_BROKER_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported broker type: {broker_type}")
+    return bt
+
+
+def _position_to_response(p) -> 'PositionResponse':
+    """将 Position 对象转换为 PositionResponse（消除 3 处重复构造逻辑）"""
+    return PositionResponse(
+        symbol=p.symbol,
+        market=p.market.value,
+        quantity=p.quantity,
+        avg_cost=p.avg_cost,
+        current_price=p.current_price,
+        market_value=p.market_value,
+        unrealized_pnl=p.unrealized_pnl,
+        unrealized_pnl_percent=p.unrealized_pnl_percent,
+        realized_pnl=p.realized_pnl,
+        side=p.side.value,
+        currency=p.currency.value,
+        company_name=p.company_name,
+        sector=p.sector,
+    )
+
+
+def get_connected_adapter(portfolio: UnifiedPortfolio, broker_type: str):
+    """获取已连接的券商适配器，失败时抛出 HTTPException"""
+    broker_type = validate_broker_type(broker_type)
+    adapter = portfolio.get_adapter(broker_type)
+
+    if not adapter:
+        raise HTTPException(status_code=404, detail=f"Broker not found: {broker_type}")
+
+    if not adapter.is_connected:
+        raise HTTPException(status_code=400, detail=f"Broker not connected: {broker_type}")
+
+    return adapter
+
 
 router = APIRouter(prefix="/api/v1/broker", tags=["Broker"])
 
@@ -205,7 +261,7 @@ async def connect_broker(
         broker_type = config.broker_type.lower()
 
         if results.get(broker_type, False):
-            adapter = portfolio._adapters.get(broker_type)
+            adapter = portfolio.get_adapter(broker_type)
             return BrokerStatusResponse(
                 broker_type=broker_type,
                 connected=True,
@@ -219,9 +275,11 @@ async def connect_broker(
             )
 
     except AuthenticationError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        logger.error(f"Broker authentication error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
     except BrokerError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Broker connection error: {e}")
+        raise HTTPException(status_code=500, detail="Broker operation failed")
 
 
 @router.delete("/disconnect/{broker_type}", summary="断开券商连接")
@@ -230,12 +288,12 @@ async def disconnect_broker(
     portfolio: UnifiedPortfolio = Depends(get_portfolio),
 ):
     """断开指定券商的连接"""
-    broker_type = broker_type.lower()
+    broker_type = validate_broker_type(broker_type)
 
     if broker_type not in portfolio.broker_names:
         raise HTTPException(status_code=404, detail=f"Broker not found: {broker_type}")
 
-    adapter = portfolio._adapters.get(broker_type)
+    adapter = portfolio.get_adapter(broker_type)
     if adapter:
         await adapter.disconnect()
 
@@ -252,11 +310,12 @@ async def get_broker_status(
     health = await portfolio.health_check_all()
 
     statuses = []
-    for name, adapter in portfolio._adapters.items():
+    for name in portfolio.get_all_adapter_names():
+        adapter = portfolio.get_adapter(name)
         statuses.append(BrokerStatusResponse(
             broker_type=name,
             connected=health.get(name, False),
-            account_id=adapter.account_id,
+            account_id=adapter.account_id if adapter else None,
         ))
 
     return {"brokers": statuses}
@@ -268,14 +327,7 @@ async def get_account_balance(
     portfolio: UnifiedPortfolio = Depends(get_portfolio),
 ):
     """获取指定券商的账户余额"""
-    broker_type = broker_type.lower()
-    adapter = portfolio._adapters.get(broker_type)
-
-    if not adapter:
-        raise HTTPException(status_code=404, detail=f"Broker not found: {broker_type}")
-
-    if not adapter.is_connected:
-        raise HTTPException(status_code=400, detail=f"Broker not connected: {broker_type}")
+    adapter = get_connected_adapter(portfolio, broker_type)
 
     try:
         balance = await adapter.get_account_balance()
@@ -291,7 +343,8 @@ async def get_account_balance(
             margin_available=balance.margin_available,
         )
     except BrokerError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get account balance: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get account balance")
 
 
 @router.get("/positions/{broker_type}", response_model=List[PositionResponse], summary="获取持仓列表")
@@ -300,37 +353,14 @@ async def get_positions(
     portfolio: UnifiedPortfolio = Depends(get_portfolio),
 ):
     """获取指定券商的持仓列表"""
-    broker_type = broker_type.lower()
-    adapter = portfolio._adapters.get(broker_type)
-
-    if not adapter:
-        raise HTTPException(status_code=404, detail=f"Broker not found: {broker_type}")
-
-    if not adapter.is_connected:
-        raise HTTPException(status_code=400, detail=f"Broker not connected: {broker_type}")
+    adapter = get_connected_adapter(portfolio, broker_type)
 
     try:
         positions = await adapter.get_positions()
-        return [
-            PositionResponse(
-                symbol=p.symbol,
-                market=p.market.value,
-                quantity=p.quantity,
-                avg_cost=p.avg_cost,
-                current_price=p.current_price,
-                market_value=p.market_value,
-                unrealized_pnl=p.unrealized_pnl,
-                unrealized_pnl_percent=p.unrealized_pnl_percent,
-                realized_pnl=p.realized_pnl,
-                side=p.side.value,
-                currency=p.currency.value,
-                company_name=p.company_name,
-                sector=p.sector,
-            )
-            for p in positions
-        ]
+        return [_position_to_response(p) for p in positions]
     except BrokerError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get positions: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get positions")
 
 
 @router.get("/trades/{broker_type}", response_model=List[TradeResponse], summary="获取交易历史")
@@ -344,14 +374,7 @@ async def get_trades(
 
     - days: 获取最近多少天的交易记录，默认7天
     """
-    broker_type = broker_type.lower()
-    adapter = portfolio._adapters.get(broker_type)
-
-    if not adapter:
-        raise HTTPException(status_code=404, detail=f"Broker not found: {broker_type}")
-
-    if not adapter.is_connected:
-        raise HTTPException(status_code=400, detail=f"Broker not connected: {broker_type}")
+    adapter = get_connected_adapter(portfolio, broker_type)
 
     try:
         trades = await adapter.get_trades(days)
@@ -373,7 +396,8 @@ async def get_trades(
             for t in trades
         ]
     except BrokerError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get trades: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get trades")
 
 
 @router.get("/summary/{broker_type}", response_model=BrokerSummaryResponse, summary="获取券商摘要")
@@ -382,6 +406,7 @@ async def get_broker_summary(
     portfolio: UnifiedPortfolio = Depends(get_portfolio),
 ):
     """获取指定券商的投资组合摘要"""
+    broker_type = validate_broker_type(broker_type)
     summary = await portfolio.get_broker_summary(broker_type)
 
     if not summary:
@@ -401,24 +426,7 @@ async def get_broker_summary(
             margin_used=summary.balance.margin_used,
             margin_available=summary.balance.margin_available,
         ),
-        positions=[
-            PositionResponse(
-                symbol=p.symbol,
-                market=p.market.value,
-                quantity=p.quantity,
-                avg_cost=p.avg_cost,
-                current_price=p.current_price,
-                market_value=p.market_value,
-                unrealized_pnl=p.unrealized_pnl,
-                unrealized_pnl_percent=p.unrealized_pnl_percent,
-                realized_pnl=p.realized_pnl,
-                side=p.side.value,
-                currency=p.currency.value,
-                company_name=p.company_name,
-                sector=p.sector,
-            )
-            for p in summary.positions
-        ],
+        positions=[_position_to_response(p) for p in summary.positions],
         position_count=summary.position_count,
         top_holdings=summary.top_holdings,
         market_allocation=summary.market_allocation,
@@ -456,7 +464,8 @@ async def get_unified_portfolio(
             last_updated=summary.last_updated.isoformat(),
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get unified portfolio: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get unified portfolio")
 
 
 @router.get("/position/{symbol}", summary="跨券商查询持仓")
@@ -469,26 +478,13 @@ async def get_position_across_brokers(
 
     用于检查同一股票在不同账户的分布。
     """
+    symbol = validate_symbol(symbol)
     positions = await portfolio.get_position_across_brokers(symbol.upper())
 
     result = {}
     for broker, pos in positions.items():
         if pos:
-            result[broker] = PositionResponse(
-                symbol=pos.symbol,
-                market=pos.market.value,
-                quantity=pos.quantity,
-                avg_cost=pos.avg_cost,
-                current_price=pos.current_price,
-                market_value=pos.market_value,
-                unrealized_pnl=pos.unrealized_pnl,
-                unrealized_pnl_percent=pos.unrealized_pnl_percent,
-                realized_pnl=pos.realized_pnl,
-                side=pos.side.value,
-                currency=pos.currency.value,
-                company_name=pos.company_name,
-                sector=pos.sector,
-            ).model_dump()
+            result[broker] = _position_to_response(pos).model_dump()
         else:
             result[broker] = None
 

@@ -9,7 +9,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import type { TimeframeAnalysis as TimeframeAnalysisType, SignalStrength, TrendDirection } from '../../types/analysis';
 import { colors, signalColors, trendColors } from '../../styles/theme';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 const { Title, Text } = Typography;
 
@@ -27,12 +27,7 @@ const trendIcons: Record<TrendDirection, React.ReactNode> = {
 
 const TimeframeAnalysis: React.FC<TimeframeAnalysisProps> = ({ analyses }) => {
   const { t } = useTranslation();
-  const { theme } = useSettingsStore();
-
-  const isDark = theme === 'dark';
-  const textColor = isDark ? '#e6edf3' : '#1f1f1f';
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
-  const borderColor = isDark ? '#30363d' : '#e8e8e8';
+  const { textColor, secondaryColor, borderColor } = useThemeColors();
 
   const columns = [
     {

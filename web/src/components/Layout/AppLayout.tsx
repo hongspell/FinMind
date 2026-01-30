@@ -14,7 +14,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { LanguageSwitcher } from '../Common';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -28,14 +28,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-  const { theme } = useSettingsStore();
-
-  // 主题相关颜色
-  const isDark = theme === 'dark';
-  const borderColor = isDark ? '#30363d' : '#e8e8e8';
-  const textColor = isDark ? '#e6edf3' : '#1f1f1f';
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
-  const siderBg = isDark ? '#161b22' : '#ffffff';
+  const { isDark, borderColor, textColor, secondaryColor, siderBg } = useThemeColors();
 
   const menuItems = [
     {

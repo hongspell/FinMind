@@ -240,11 +240,7 @@ class IBKRAdapter(BrokerAdapter):
 
         # 获取货币
         base_currency = values.get("BaseCurrency", "USD")
-        currency = Currency.USD
-        if base_currency == "HKD":
-            currency = Currency.HKD
-        elif base_currency == "CNY":
-            currency = Currency.CNY
+        currency = self._parse_currency(base_currency)
 
         return AccountBalance(
             total_assets=values.get("NetLiquidation", 0.0),
@@ -290,11 +286,7 @@ class IBKRAdapter(BrokerAdapter):
                 market = self._get_market(contract.exchange, contract.currency)
 
                 # 确定货币
-                currency = Currency.USD
-                if contract.currency == "HKD":
-                    currency = Currency.HKD
-                elif contract.currency == "CNY":
-                    currency = Currency.CNY
+                currency = self._parse_currency(contract.currency)
 
                 # 从 portfolio item 获取数据（IBKR 直接提供）
                 quantity = item.position
@@ -342,11 +334,7 @@ class IBKRAdapter(BrokerAdapter):
 
                 symbol = contract.symbol
                 market = self._get_market(contract.exchange, contract.currency)
-                currency = Currency.USD
-                if contract.currency == "HKD":
-                    currency = Currency.HKD
-                elif contract.currency == "CNY":
-                    currency = Currency.CNY
+                currency = self._parse_currency(contract.currency)
 
                 quantity = pos.position
                 avg_cost = pos.avgCost
@@ -417,11 +405,7 @@ class IBKRAdapter(BrokerAdapter):
 
                 # 确定市场和货币
                 market = self._get_market(contract.exchange, contract.currency)
-                currency = Currency.USD
-                if contract.currency == "HKD":
-                    currency = Currency.HKD
-                elif contract.currency == "CNY":
-                    currency = Currency.CNY
+                currency = self._parse_currency(contract.currency)
 
                 # 确定交易方向
                 action = TradeAction.BUY if execution.side == 'BOT' else TradeAction.SELL

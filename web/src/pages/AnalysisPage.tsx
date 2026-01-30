@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Row, Col, Spin, Alert, Space, Typography, Button, message } from 'antd';
 import { ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
@@ -9,7 +9,7 @@ import TimeframeAnalysis from '../components/Analysis/TimeframeAnalysis';
 import RiskAnalysis from '../components/Analysis/RiskAnalysis';
 import PriceChart from '../components/Charts/PriceChart';
 import { useAnalysisStore } from '../stores/analysisStore';
-import { useSettingsStore } from '../stores/settingsStore';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 const { Title, Text } = Typography;
 
@@ -18,33 +18,29 @@ const AnalysisPage: React.FC = () => {
   const { currentAnalysis, isLoading, error, analyze, clearAnalysis, isInWatchlist, toggleWatchlist } = useAnalysisStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { t, i18n } = useTranslation();
-  const { theme } = useSettingsStore();
-
-  // Theme-aware colors
-  const isDark = theme === 'dark';
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
+  const { secondaryColor } = useThemeColors();
 
   useEffect(() => {
     if (symbol) {
       const upperSymbol = symbol.toUpperCase();
-      // 如果当前分析的股票与请求的不同，先清空旧数据以显示加载状态
       if (currentAnalysis && currentAnalysis.symbol !== upperSymbol) {
         clearAnalysis();
       }
-      // 如果没有分析数据或股票不匹配，则开始分析
       if (!currentAnalysis || currentAnalysis.symbol !== upperSymbol) {
         analyze(symbol);
       }
     }
-  }, [symbol]);
+  }, [symbol, currentAnalysis, clearAnalysis, analyze]);
 
-  const handleRefresh = async () => {
-    if (symbol) {
-      setIsRefreshing(true);
+  const handleRefresh = useCallback(async () => {
+    if (!symbol) return;
+    setIsRefreshing(true);
+    try {
       await analyze(symbol);
+    } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [symbol, analyze]);
 
   const handleToggleWatchlist = async () => {
     if (symbol) {

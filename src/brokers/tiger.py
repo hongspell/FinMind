@@ -119,9 +119,24 @@ class TigerAdapter(BrokerAdapter):
             raise ConnectionError(f"Tiger connection failed: {error_msg}")
 
     def _read_private_key(self, path: str) -> str:
-        """读取私钥文件"""
-        with open(path, 'r') as f:
-            return f.read()
+        """读取私钥文件（带路径验证）"""
+        import os
+
+        # 验证文件扩展名
+        if not path.endswith('.pem'):
+            raise AuthenticationError("Private key file must have .pem extension")
+
+        # 解析为绝对路径并验证
+        resolved = os.path.realpath(path)
+
+        with open(resolved, 'r') as f:
+            content = f.read()
+
+        # 验证 PEM 格式
+        if '-----BEGIN' not in content or '-----END' not in content:
+            raise AuthenticationError("Invalid PEM file format")
+
+        return content
 
     async def disconnect(self) -> None:
         """断开连接"""
@@ -161,11 +176,7 @@ class TigerAdapter(BrokerAdapter):
                 asset = assets[0]
 
             # 确定货币
-            currency = Currency.USD
-            if asset.currency == 'HKD':
-                currency = Currency.HKD
-            elif asset.currency == 'CNH':
-                currency = Currency.CNY
+            currency = self._parse_currency(asset.currency or '')
 
             return AccountBalance(
                 total_assets=float(asset.summary.net_liquidation or 0),
@@ -199,11 +210,7 @@ class TigerAdapter(BrokerAdapter):
                 market = self._get_market(pos.contract.market)
 
                 # 确定货币
-                currency = Currency.USD
-                if pos.contract.currency == 'HKD':
-                    currency = Currency.HKD
-                elif pos.contract.currency == 'CNH':
-                    currency = Currency.CNY
+                currency = self._parse_currency(pos.contract.currency or '')
 
                 quantity = float(pos.quantity or 0)
                 avg_cost = float(pos.average_cost or 0)

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Card, Row, Col, Statistic, Space, Button, Spin, Alert, Tooltip, Select, Typography } from 'antd';
 import {
   WarningOutlined,
@@ -8,10 +8,32 @@ import {
   FallOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useThemeColors } from '../../hooks/useThemeColors';
 import { monteCarloApi } from '../../services/brokerApi';
 import type { PriceSimulationResult } from '../../types/broker';
-import * as echarts from 'echarts';
+
+// echarts 按需加载（减少约 500KB 包大小）
+import * as echarts from 'echarts/core';
+import { LineChart } from 'echarts/charts';
+import {
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+import type { LineSeriesOption } from 'echarts/charts';
+import type { ComposeOption } from 'echarts/core';
+import type {
+  GridComponentOption,
+  TooltipComponentOption,
+  LegendComponentOption,
+} from 'echarts/components';
+
+type ECOption = ComposeOption<
+  LineSeriesOption | GridComponentOption | TooltipComponentOption | LegendComponentOption
+>;
+
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
 const { Text } = Typography;
 
@@ -22,9 +44,8 @@ interface RiskAnalysisProps {
 
 const RiskAnalysis: React.FC<RiskAnalysisProps> = ({ symbol, currentPrice }) => {
   const { i18n } = useTranslation();
-  const { theme } = useSettingsStore();
   const isZh = i18n.language?.startsWith('zh');
-  const isDark = theme === 'dark';
+  const { isDark, borderColor, textColor, secondaryColor } = useThemeColors();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,13 +55,8 @@ const RiskAnalysis: React.FC<RiskAnalysisProps> = ({ symbol, currentPrice }) => 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
-  // 主题颜色
-  const borderColor = isDark ? '#30363d' : '#e8e8e8';
-  const textColor = isDark ? '#e6edf3' : '#1f1f1f';
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
-
   // 加载模拟数据
-  const loadSimulation = async () => {
+  const loadSimulation = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -56,22 +72,22 @@ const RiskAnalysis: React.FC<RiskAnalysisProps> = ({ symbol, currentPrice }) => 
       } else {
         setError(isZh ? '模拟服务暂不可用，请稍后重试' : 'Simulation service unavailable, please try again later');
       }
-    } catch (err: any) {
-      // 友好的错误提示
-      const errorMsg = err.message?.includes('404') || err.message?.includes('Not Found')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      const errorMsg = message.includes('404') || message.includes('Not Found')
         ? (isZh ? '后端服务未启动，请先启动 API 服务器' : 'Backend service not running. Please start the API server first.')
         : (isZh ? '模拟服务暂不可用' : 'Simulation service unavailable');
       setError(errorMsg);
     } finally {
       setLoading(false);
     }
-  };
+  }, [symbol, currentPrice, days, isZh]);
 
   useEffect(() => {
     if (symbol && currentPrice > 0) {
       loadSimulation();
     }
-  }, [symbol, currentPrice, days]);
+  }, [symbol, currentPrice, days, loadSimulation]);
 
   // 渲染图表
   useEffect(() => {
@@ -87,7 +103,7 @@ const RiskAnalysis: React.FC<RiskAnalysisProps> = ({ symbol, currentPrice }) => 
     const pathsToShow = simulation.paths.slice(0, 20);
     const xAxisData = Array.from({ length: simulation.days + 1 }, (_, i) => i);
 
-    const series: echarts.SeriesOption[] = pathsToShow.map((path, idx) => ({
+    const series: LineSeriesOption[] = pathsToShow.map((path, idx) => ({
       name: `Path ${idx + 1}`,
       type: 'line',
       data: path,
@@ -136,7 +152,7 @@ const RiskAnalysis: React.FC<RiskAnalysisProps> = ({ symbol, currentPrice }) => 
       },
     });
 
-    const option: echarts.EChartsOption = {
+    const option: ECOption = {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
@@ -182,14 +198,18 @@ const RiskAnalysis: React.FC<RiskAnalysisProps> = ({ symbol, currentPrice }) => 
     };
 
     chart.setOption(option, true);
+  }, [simulation, isDark, isZh, currentPrice, borderColor, textColor, secondaryColor]);
 
-    const handleResize = () => chart.resize();
+  // resize 监听器：只挂载一次
+  useEffect(() => {
+    const handleResize = () => {
+      chartInstance.current?.resize();
+    };
     window.addEventListener('resize', handleResize);
-
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, [simulation, isDark, isZh, currentPrice]);
+  }, []);
 
   // 清理图表
   useEffect(() => {

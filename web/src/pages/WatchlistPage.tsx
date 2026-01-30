@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { Card, Table, Tag, Button, Space, Typography, Empty, Popconfirm, Skeleton } from 'antd';
 import {
   StarOutlined,
@@ -13,27 +13,41 @@ import type { Quote } from '../types/analysis';
 
 const { Title, Text } = Typography;
 
+const AUTO_REFRESH_INTERVAL = 60000; // 60 秒自动刷新
+
 const WatchlistPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { watchlist, removeFromWatchlist, refreshWatchlist } = useAnalysisStore();
   const [loading, setLoading] = React.useState(false);
-  const lastRefreshRef = useRef<number>(0);
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setLoading(true);
-    await refreshWatchlist();
-    lastRefreshRef.current = Date.now();
-    setLoading(false);
-  };
+    try {
+      await refreshWatchlist();
+    } finally {
+      setLoading(false);
+    }
+  }, [refreshWatchlist]);
 
+  // 挂载时刷新一次
   useEffect(() => {
-    // 只有当数据超过 30 秒未刷新时才自动刷新
-    const timeSinceLastRefresh = Date.now() - lastRefreshRef.current;
-    if (watchlist.length > 0 && timeSinceLastRefresh > 30000) {
+    if (watchlist.length > 0) {
       handleRefresh();
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 自动定时刷新
+  useEffect(() => {
+    if (watchlist.length === 0) return;
+
+    const timer = setInterval(() => {
+      handleRefresh();
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => clearInterval(timer);
+  }, [watchlist.length, handleRefresh]);
+
 
   const columns = [
     {

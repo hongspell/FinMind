@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons';
 import type { MarketData } from '../../types/analysis';
 import { colors } from '../../styles/theme';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 const { Title, Text } = Typography;
 
@@ -62,12 +62,10 @@ const StockHeader: React.FC<StockHeaderProps> = ({
   };
 
   // 主题相关颜色
-  const { theme } = useSettingsStore();
-  const isDark = theme === 'dark';
+  const { isDark, secondaryColor } = useThemeColors();
   const cardBg = isDark
     ? 'linear-gradient(135deg, #161b22 0%, #1c2128 100%)'
     : 'linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%)';
-  const secondaryColor = isDark ? '#8b949e' : '#595959';
 
   return (
     <Card
@@ -169,4 +167,4 @@ const StockHeader: React.FC<StockHeaderProps> = ({
   );
 };
 
-export default StockHeader;
+export default React.memo(StockHeader);
