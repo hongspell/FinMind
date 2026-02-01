@@ -31,6 +31,115 @@ class ValuationResult:
     sensitivity: Dict[str, Any]
 
 
+def calculate_dcf(
+    fcf: float,
+    growth_rate: float,
+    discount_rate: float,
+    terminal_growth: float,
+    projection_years: int,
+    net_debt: float,
+    shares: float,
+) -> Dict[str, Any]:
+    """
+    独立的 DCF 计算函数（纯数学，无 LLM 调用）。
+
+    Returns:
+        dict 包含 fair_value, enterprise_value, pv_fcf, pv_terminal,
+        projected_fcf, sensitivity_matrix
+    """
+    if shares <= 0:
+        shares = 1
+    if discount_rate <= terminal_growth:
+        terminal_growth = discount_rate - 0.01
+
+    # 预测现金流
+    projected_fcf = []
+    current_fcf = fcf
+    for year in range(1, projection_years + 1):
+        year_growth = growth_rate - (growth_rate - terminal_growth) * (year / projection_years) ** 2
+        current_fcf = current_fcf * (1 + year_growth)
+        projected_fcf.append(current_fcf)
+
+    # 计算现值
+    pv_fcf = sum(
+        cf / (1 + discount_rate) ** (i + 1)
+        for i, cf in enumerate(projected_fcf)
+    )
+
+    # 终值
+    terminal_value = projected_fcf[-1] * (1 + terminal_growth) / (discount_rate - terminal_growth)
+    pv_terminal = terminal_value / (1 + discount_rate) ** projection_years
+
+    # 企业价值
+    enterprise_value = pv_fcf + pv_terminal
+
+    # 转换为每股价值
+    equity_value = enterprise_value - net_debt
+    fair_value = equity_value / shares
+
+    # 生成 5×5 敏感性矩阵 (DR ±2% step 1%, TG ±1% step 0.5%)
+    sensitivity_matrix = _build_sensitivity_matrix(
+        fcf, growth_rate, discount_rate, terminal_growth,
+        projection_years, net_debt, shares,
+    )
+
+    return {
+        "fair_value": fair_value,
+        "enterprise_value": enterprise_value,
+        "equity_value": equity_value,
+        "pv_fcf": pv_fcf,
+        "pv_terminal": pv_terminal,
+        "projected_fcf": projected_fcf,
+        "sensitivity_matrix": sensitivity_matrix,
+    }
+
+
+def _build_sensitivity_matrix(
+    fcf: float,
+    growth_rate: float,
+    base_discount: float,
+    base_terminal: float,
+    projection_years: int,
+    net_debt: float,
+    shares: float,
+) -> Dict[str, Any]:
+    """生成 5×5 敏感性矩阵，真实重算 DCF。"""
+    dr_offsets = [-0.02, -0.01, 0.0, 0.01, 0.02]
+    tg_offsets = [-0.01, -0.005, 0.0, 0.005, 0.01]
+
+    discount_rates = [round(base_discount + d, 4) for d in dr_offsets]
+    terminal_growths = [round(base_terminal + t, 4) for t in tg_offsets]
+
+    matrix = []
+    for dr in discount_rates:
+        row = []
+        for tg in terminal_growths:
+            if dr <= tg:
+                row.append(None)
+                continue
+            # Re-run DCF math inline for speed
+            current = fcf
+            pv = 0.0
+            last_cf = fcf
+            for yr in range(1, projection_years + 1):
+                yr_g = growth_rate - (growth_rate - tg) * (yr / projection_years) ** 2
+                current = current * (1 + yr_g)
+                pv += current / (1 + dr) ** yr
+                last_cf = current
+            tv = last_cf * (1 + tg) / (dr - tg)
+            pv_tv = tv / (1 + dr) ** projection_years
+            ev = pv + pv_tv
+            fv = (ev - net_debt) / shares if shares > 0 else 0
+            row.append(round(fv, 2))
+        matrix.append(row)
+
+    return {
+        "discount_rates": [round(d * 100, 2) for d in discount_rates],
+        "terminal_growths": [round(t * 100, 2) for t in terminal_growths],
+        "fair_values": matrix,
+    }
+
+
 class ValuationAgent(BaseAgent):
     """
     估值分析 Agent
@@ -311,14 +420,12 @@ class ValuationAgent(BaseAgent):
         macro_view: Optional[Dict],
         custom_assumptions: Dict
     ) -> Optional[ValuationResult]:
-        """DCF 估值"""
+        """DCF 估值 - 委托给模块级 calculate_dcf()"""
         try:
-            # 获取基础数据
             fcf = financial_data.get('latest_fcf', 0)
             growth_rate = custom_assumptions.get('growth_rate') or \
                           financial_data.get('estimated_growth', 0.10)
-            
-            # 折现率（从宏观分析获取或使用默认值）
+
             discount_rate = custom_assumptions.get('discount_rate')
             if not discount_rate:
                 if macro_view and macro_view.get('risk_free_rate'):
@@ -327,51 +434,26 @@ class ValuationAgent(BaseAgent):
                     beta = financial_data.get('beta', 1.0)
                     discount_rate = risk_free + beta * equity_premium
                 else:
-                    discount_rate = 0.10  # 默认 10%
-            
+                    discount_rate = 0.10
+
             terminal_growth = custom_assumptions.get('terminal_growth', 0.025)
             projection_years = custom_assumptions.get('projection_years', 10)
-            
-            # 预测现金流
-            projected_fcf = []
-            current_fcf = fcf
-            for year in range(1, projection_years + 1):
-                # 增长率逐年递减到终值增长率
-                year_growth = growth_rate - (growth_rate - terminal_growth) * (year / projection_years) ** 2
-                current_fcf = current_fcf * (1 + year_growth)
-                projected_fcf.append(current_fcf)
-            
-            # 计算现值
-            pv_fcf = sum(
-                cf / (1 + discount_rate) ** (i + 1)
-                for i, cf in enumerate(projected_fcf)
-            )
-            
-            # 终值
-            terminal_value = projected_fcf[-1] * (1 + terminal_growth) / (discount_rate - terminal_growth)
-            pv_terminal = terminal_value / (1 + discount_rate) ** projection_years
-            
-            # 企业价值
-            enterprise_value = pv_fcf + pv_terminal
-            
-            # 转换为每股价值
             net_debt = financial_data.get('net_debt', 0)
             shares = financial_data.get('shares_outstanding', 1)
-            equity_value = enterprise_value - net_debt
-            fair_value = equity_value / shares
-            
-            # 敏感性分析
-            sensitivity = self._run_dcf_sensitivity(
-                fcf, growth_rate, discount_rate, terminal_growth,
-                projection_years, net_debt, shares
+
+            dcf_result = calculate_dcf(
+                fcf=fcf,
+                growth_rate=growth_rate,
+                discount_rate=discount_rate,
+                terminal_growth=terminal_growth,
+                projection_years=projection_years,
+                net_debt=net_debt,
+                shares=shares,
             )
-            
-            # 计算价值区间（基于敏感性）
-            value_range = (
-                fair_value * 0.85,  # Bear case
-                fair_value * 1.15   # Bull case
-            )
-            
+
+            fair_value = dcf_result["fair_value"]
+            value_range = (fair_value * 0.85, fair_value * 1.15)
+
             return ValuationResult(
                 method='DCF',
                 fair_value=fair_value,
@@ -383,9 +465,9 @@ class ValuationAgent(BaseAgent):
                     f"永续增长率: {terminal_growth:.1%}",
                     f"预测期: {projection_years}年"
                 ],
-                sensitivity=sensitivity
+                sensitivity={"sensitivity_matrix": dcf_result["sensitivity_matrix"]}
             )
-            
+
         except Exception as e:
             print(f"DCF valuation failed: {e}")
             return None
@@ -622,29 +704,6 @@ class ValuationAgent(BaseAgent):
             'DDM': 0.10
         }
         return weights.get(method, 0.25)
-    
-    def _run_dcf_sensitivity(
-        self,
-        fcf: float,
-        growth: float,
-        discount: float,
-        terminal: float,
-        years: int,
-        net_debt: float,
-        shares: float
-    ) -> Dict[str, Any]:
-        """DCF 敏感性分析"""
-        # 简化的敏感性矩阵
-        sensitivities = {}
-        
-        for dr in [-0.01, 0, 0.01]:
-            for tg in [-0.005, 0, 0.005]:
-                key = f"DR{discount+dr:.1%}_TG{terminal+tg:.1%}"
-                # 这里应该重新计算 DCF，简化起见使用近似
-                adjustment = (1 - dr * 10) * (1 + tg * 20)
-                sensitivities[key] = adjustment
-        
-        return {'sensitivity_matrix': sensitivities}
     
     def _assess_valuation_uncertainties(
         self,

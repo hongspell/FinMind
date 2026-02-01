@@ -237,7 +237,7 @@ print(f"Confidence: {result.confidence.overall:.1%}")
 #### REST API
 
 ```bash
-# Create analysis task
+# Create analysis task (async)
 curl -X POST "http://localhost:8000/api/v1/analyze" \
   -H "Content-Type: application/json" \
   -d '{"target": "AAPL", "chain": "full_analysis"}'
@@ -245,47 +245,100 @@ curl -X POST "http://localhost:8000/api/v1/analyze" \
 # Check task status
 curl "http://localhost:8000/api/v1/analyze/{task_id}"
 
+# Stream task progress (SSE)
+curl "http://localhost:8000/api/v1/analyze/{task_id}/stream"
+
 # Get quick quote
-curl "http://localhost:8000/api/v1/quote/AAPL"
+curl "http://localhost:8000/api/quote/AAPL"
+
+# DCF sensitivity analysis
+curl -X POST "http://localhost:8000/api/v1/valuation/sensitivity" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "AAPL", "discount_rate": 0.10, "growth_rate": 0.08}'
+
+# Quantitative backtest
+curl -X POST "http://localhost:8000/api/v1/backtest" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "AAPL", "backtest_date": "2025-01-01", "forward_days": 90}'
 ```
 
 ## 📁 Project Structure
 
 ```
 FinMind/
+├── api/
+│   └── main.py              # FastAPI application entry point
 ├── config/
 │   ├── agents/              # Agent behavior configuration
 │   │   ├── valuation_agent.yaml
-│   │   └── technical_agent.yaml
+│   │   ├── technical_agent.yaml
+│   │   ├── earnings_agent.yaml
+│   │   ├── risk_agent.yaml
+│   │   ├── sentiment_agent.yaml
+│   │   └── strategy_agent.yaml
 │   ├── chains/              # Analysis chain DAG definitions
 │   │   ├── full_analysis.yaml
-│   │   └── quick_scan.yaml
+│   │   ├── quick_scan.yaml
+│   │   └── earnings_deep_dive.yaml
 │   ├── methodologies/       # Methodology configuration
-│   │   └── dcf.yaml
+│   │   ├── dcf.yaml
+│   │   └── comparables.yaml
 │   └── prompts/             # Prompt templates
+│       └── valuation_prompts.yaml
 ├── src/
 │   ├── core/                # Core framework
 │   │   ├── base.py          # Base class definitions
 │   │   ├── config_loader.py # Configuration loader
-│   │   └── data_and_chain.py# Data providers + chain executor
+│   │   ├── data_and_chain.py# Data providers + chain executor
+│   │   ├── cache.py         # Redis caching layer
+│   │   ├── backtest.py      # Quantitative backtesting engine
+│   │   ├── monte_carlo.py   # Monte Carlo simulation
+│   │   ├── portfolio_analysis.py  # Portfolio health & risk scoring
+│   │   ├── portfolio_tracker.py   # Portfolio tracking
+│   │   ├── quote_service.py # Real-time quote service
+│   │   ├── market_hours.py  # Market session detection
+│   │   ├── report_generator.py    # Markdown report generation
+│   │   └── database.py      # Database models (TimescaleDB)
 │   ├── llm/                 # LLM gateway
-│   │   ├── gateway.py       # Unified interface
+│   │   ├── gateway.py       # Unified interface + cost tracking
 │   │   └── providers.py     # Provider implementations
 │   ├── agents/              # Agent implementations
-│   │   ├── valuation_agent.py
-│   │   ├── technical_agent.py
-│   │   ├── earnings_agent.py
-│   │   ├── sentiment_risk_agent.py
-│   │   ├── strategy_agent.py
-│   │   ├── macro_agent.py
-│   │   └── sector_agent.py
-│   ├── api/                 # REST API
-│   │   └── main.py
+│   │   ├── valuation_agent.py     # DCF, comps, historical valuation
+│   │   ├── technical_agent.py     # Trends, indicators, patterns
+│   │   ├── earnings_agent.py      # Revenue quality, margins
+│   │   ├── sentiment_risk_agent.py# Sentiment + risk assessment
+│   │   ├── strategy_agent.py      # Decision synthesis
+│   │   ├── macro_agent.py         # Macro environment
+│   │   └── sector_agent.py        # Industry & competition
+│   ├── brokers/             # Broker adapters (read-only)
+│   │   ├── base.py          # Abstract base class + data models
+│   │   ├── trade_store.py   # Local trade persistence component
+│   │   ├── ibkr.py          # IBKR TWS API adapter
+│   │   ├── ibkr_cpapi.py    # IBKR Client Portal REST adapter
+│   │   ├── ibkr_flex.py     # IBKR Flex Queries (history import)
+│   │   ├── futu.py          # Futu OpenD adapter
+│   │   ├── tiger.py         # Tiger Open API adapter
+│   │   └── portfolio.py     # Adapter registry + factory
+│   ├── api/                 # API route modules
+│   │   ├── broker_routes.py # Broker connection & portfolio endpoints
+│   │   ├── analysis_routes.py # Analysis endpoints
+│   │   ├── models.py        # Pydantic request/response models
+│   │   └── task_store.py    # Async task management
 │   └── main.py              # CLI entry point
+├── web/                     # React frontend (Vite + Ant Design)
+│   └── src/
+│       ├── pages/           # Dashboard, Analysis, Portfolio, Settings
+│       ├── components/      # Charts, Analysis panels, Layout
+│       ├── services/        # API & broker API clients
+│       ├── stores/          # Zustand state management
+│       ├── hooks/           # Custom React hooks
+│       ├── types/           # TypeScript type definitions
+│       └── styles/          # Theme & global styles
 ├── tests/                   # Test suite
-├── scripts/                 # Utility scripts
+├── scripts/                 # Utility scripts (init-db.sql, start-dev.sh)
 ├── docker-compose.yml
 ├── Dockerfile
+├── Makefile                 # Dev shortcuts (make api, make web, etc.)
 └── requirements.txt
 ```
 
@@ -433,13 +486,23 @@ pytest tests/ -v --cov=src --cov-report=html
 
 ## 🔗 Broker Integration
 
-FinMind supports integration with multiple brokerages for personalized portfolio analysis:
+FinMind supports integration with multiple brokerages for personalized portfolio analysis. All adapters are **read-only** (no trading), with local trade history persistence.
 
 | Broker | API | Status | Features |
 |--------|-----|--------|----------|
-| **IBKR** (盈透证券) | TWS API | ✅ Ready | Portfolio, Positions, Balance |
-| **Futu** (富途证券) | OpenD API | ✅ Ready | Portfolio, Positions, Balance |
-| **Tiger** (老虎证券) | Tiger Open API | ✅ Ready | Portfolio, Positions, Balance |
+| **IBKR** (盈透证券) | TWS API (`ib_insync`) | ✅ Ready | Portfolio, Positions, Balance, Trade History |
+| **IBKR** (盈透证券) | Client Portal REST API | ✅ Ready | Portfolio, Positions, Balance, Trade History |
+| **IBKR** (盈透证券) | Flex Queries | ✅ Ready | Full Historical Trade Import |
+| **Futu** (富途证券) | OpenD API (`futu-api`) | ✅ Ready | Portfolio, Positions, Balance, Trade History |
+| **Tiger** (老虎证券) | Tiger Open API (`tigeropen`) | ✅ Ready | Portfolio, Positions, Balance, Trade History |
+
+### Architecture
+
+- **`BrokerAdapter`** abstract base class defines the unified interface
+- **`TradeStore`** component handles local JSON persistence with configurable dedup keys
+- Each adapter composes a `TradeStore` instance — no duplicated storage logic
+- Market/exchange resolution is unified via `BrokerAdapter._resolve_market()`
+- All adapters include **Mock** variants for demo/testing without real connections
 
 ### Web UI Setup
 
@@ -454,7 +517,8 @@ You can also enable **Demo Mode** to test with sample data without connecting a 
 ### API Setup
 
 ```bash
-# IBKR: Run IB Gateway and enable API
+# IBKR TWS: Run IB Gateway / TWS and enable API
+# IBKR Client Portal: Run CP Gateway, login at https://localhost:5000
 # Futu: Run OpenD and login
 # Tiger: Register app at developer portal
 
@@ -463,8 +527,21 @@ curl -X POST "http://localhost:8000/api/v1/broker/connect" \
   -H "Content-Type: application/json" \
   -d '{"broker_type": "ibkr", "ibkr_port": 4001}'
 
+# Connect via Client Portal API
+curl -X POST "http://localhost:8000/api/v1/broker/connect" \
+  -H "Content-Type: application/json" \
+  -d '{"broker_type": "ibkr_cp"}'
+
 # Get unified portfolio
 curl "http://localhost:8000/api/v1/broker/unified"
+
+# Get trade history
+curl "http://localhost:8000/api/v1/broker/trades/ibkr"
+
+# Import historical trades via Flex Queries
+curl -X POST "http://localhost:8000/api/v1/broker/ibkr/flex-import" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "your-flex-token", "query_id": "your-query-id", "account_id": "your-account"}'
 ```
 
 ### Position-Aware Analysis
@@ -542,21 +619,22 @@ The web interface provides a complete portfolio management and analysis experien
 ## 🛣️ Roadmap
 
 - [x] Core framework
-- [x] LLM gateway
-- [x] Basic Agents (Valuation, Technical, Earnings)
-- [x] Analysis chain executor
-- [x] REST API
-- [x] CLI tool
+- [x] LLM gateway (multi-provider + cost tracking)
+- [x] Basic Agents (Valuation, Technical, Earnings, Macro, Sector, Strategy)
+- [x] Analysis chain executor (DAG-based)
+- [x] REST API (FastAPI + async task management)
+- [x] CLI tool (analyze, scan, valuation, serve)
 - [x] Bilingual support (English/Chinese)
-- [x] Web UI (React + Ant Design)
-- [x] Broker Integration (IBKR, Futu, Tiger)
+- [x] Web UI (React + Vite + Ant Design)
+- [x] Broker Integration (IBKR TWS, IBKR Client Portal, IBKR Flex, Futu, Tiger)
 - [x] Redis Caching Layer
-- [x] Monte Carlo Simulation
-- [x] Portfolio Context Analysis
-- [x] Portfolio Management UI
+- [x] Monte Carlo Simulation & VaR/CVaR
+- [x] Portfolio Context Analysis (health, risk, diversification scoring)
+- [x] Portfolio Management UI (positions, balance, trade history)
 - [x] Risk Analysis Charts
+- [x] Backtesting engine (quantitative, technical + DCF)
+- [x] DCF Sensitivity Analysis (5x5 matrix)
 - [ ] Real-time data streaming
-- [ ] Backtesting framework
 - [ ] MCP Server integration
 
 ## 📄 License

@@ -26,6 +26,7 @@ import {
   SettingOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
+import { Select } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { brokerApi, portfolioApi } from '../services/brokerApi';
@@ -109,6 +110,7 @@ const PortfolioPage: React.FC = () => {
   const [data, setData] = useState<PageData>(initialData);
   const [loading, setLoading] = useState(true);
   const [tradesLoading, setTradesLoading] = useState(false);
+  const [tradeDays, setTradeDays] = useState<number>(365);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // 提取交易历史的公共逻辑
@@ -119,7 +121,7 @@ const PortfolioPage: React.FC = () => {
 
     for (const broker of connectedBrokers) {
       try {
-        const tradesRes = await brokerApi.getTrades(broker.broker_type as BrokerType, 7);
+        const tradesRes = await brokerApi.getTrades(broker.broker_type as BrokerType, tradeDays);
         if (Array.isArray(tradesRes)) {
           allTrades.push(...tradesRes);
         }
@@ -135,7 +137,7 @@ const PortfolioPage: React.FC = () => {
     });
 
     return allTrades;
-  }, []);
+  }, [tradeDays]);
 
   // 加载所有数据（使用合并端点）
   const loadAllData = useCallback(async () => {
@@ -210,6 +212,13 @@ const PortfolioPage: React.FC = () => {
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refetch trades when time range changes
+  useEffect(() => {
+    if (data.brokerConnected) {
+      refreshTrades();
+    }
+  }, [tradeDays]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 解构数据
   const { portfolio, analysis, trades, brokerConnected } = data;
@@ -802,14 +811,29 @@ const PortfolioPage: React.FC = () => {
         size="small"
         style={{ marginBottom: 24 }}
         extra={
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={tradesLoading}
-            onClick={refreshTrades}
-          >
-            {isZh ? '刷新' : 'Refresh'}
-          </Button>
+          <Space>
+            <Select
+              size="small"
+              value={tradeDays}
+              onChange={(v) => { setTradeDays(v); }}
+              style={{ width: 110 }}
+              options={[
+                { value: 7, label: isZh ? '7天' : '7 days' },
+                { value: 30, label: isZh ? '30天' : '30 days' },
+                { value: 90, label: isZh ? '90天' : '90 days' },
+                { value: 365, label: isZh ? '1年' : '1 year' },
+                { value: 3650, label: isZh ? '全部' : 'All' },
+              ]}
+            />
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={tradesLoading}
+              onClick={refreshTrades}
+            >
+              {isZh ? '刷新' : 'Refresh'}
+            </Button>
+          </Space>
         }
       >
         {tradesLoading ? (

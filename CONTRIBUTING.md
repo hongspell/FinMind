@@ -46,6 +46,8 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ## Development Setup
 
+### Backend
+
 1. Create a virtual environment:
    ```bash
    python -m venv venv
@@ -55,7 +57,6 @@ By participating in this project, you agree to maintain a respectful and inclusi
 2. Install dependencies:
    ```bash
    pip install -r requirements.txt
-   pip install -r requirements-dev.txt  # Development dependencies
    ```
 
 3. Copy environment configuration:
@@ -68,6 +69,34 @@ By participating in this project, you agree to maintain a respectful and inclusi
    ```bash
    pytest tests/ -v
    ```
+
+### Frontend
+
+5. Install frontend dependencies:
+   ```bash
+   cd web
+   npm install
+   ```
+
+6. Start the development server:
+   ```bash
+   npm run dev
+   # or from project root:
+   make web
+   ```
+
+### Quick Start (All Services)
+
+```bash
+# Start database + cache containers
+make docker-up
+
+# Start API server
+make api
+
+# Start frontend (separate terminal)
+make web
+```
 
 ## How to Contribute
 
@@ -170,20 +199,26 @@ Follow conventional commits format:
 ### Running Tests
 
 ```bash
-# Run all tests
+# Backend: Run all tests
 pytest tests/ -v
 
-# Run specific test file
+# Backend: Run specific test file
 pytest tests/test_technical_agent.py -v
 
-# Run with coverage
+# Backend: Run with coverage
 pytest tests/ -v --cov=src --cov-report=html
+
+# Frontend: Run all tests
+cd web && npm test
+
+# Frontend: Run with coverage
+cd web && npm run test:coverage
 ```
 
 ### Writing Tests
 
-- Place tests in the `tests/` directory
-- Mirror the source structure (e.g., `tests/test_agents/test_technical.py`)
+- **Backend**: Place tests in the `tests/` directory, mirror the source structure
+- **Frontend**: Place tests alongside source files (e.g., `stores/analysisStore.test.ts`)
 - Use descriptive test names
 - Test both success and failure cases
 
@@ -219,11 +254,13 @@ Look for issues labeled `good first issue` - these are suitable for newcomers.
 
 ### Priority Areas
 
+- **Broker Adapters**: Adding support for new brokerages (e.g., Schwab, Alpaca). Implement the `BrokerAdapter` abstract base class and compose a `TradeStore` for persistence.
 - **Data Sources**: Adding new financial data providers
 - **Agents**: Improving analysis agents or adding new ones
-- **Testing**: Increasing test coverage
+- **Web Frontend**: React + TypeScript + Ant Design. Components live in `web/src/`.
+- **Testing**: Increasing test coverage (backend pytest + frontend vitest)
 - **Documentation**: Improving docs and examples
-- **Localization**: Adding new language support
+- **Localization**: Adding new language support (locale files in `web/src/locales/`)
 
 ## Questions?
 

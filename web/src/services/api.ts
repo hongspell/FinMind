@@ -106,4 +106,38 @@ export const configApi = {
   },
 };
 
+// DCF Sensitivity Analysis API
+export const valuationApi = {
+  sensitivityAnalysis: async (params: {
+    symbol: string;
+    discount_rate?: number;
+    growth_rate?: number;
+    terminal_growth?: number;
+    projection_years?: number;
+  }): Promise<any> => {
+    return api.post('/v1/valuation/sensitivity', params);
+  },
+};
+
+// Backtest API
+export const backtestApi = {
+  runBacktest: async (params: {
+    symbol: string;
+    backtest_date: string;
+    forward_days?: number;
+  }): Promise<any> => {
+    return api.post('/v1/backtest', params);
+  },
+};
+
+// LLM Cost API
+export const llmApi = {
+  getCosts: async (): Promise<any> => {
+    return api.get('/v1/llm/costs');
+  },
+  getAnalytics: async (): Promise<any> => {
+    return api.get('/v1/llm/analytics');
+  },
+};
+
 export default api;

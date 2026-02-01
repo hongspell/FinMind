@@ -443,35 +443,86 @@ class MacroAgent(BaseAgent):
         )
     
     async def _fetch_macro_data(self) -> Dict[str, float]:
-        """获取宏观经济数据（模拟）"""
-        # 实际应从FRED、Wind等数据源获取
-        return {
-            # 美国数据
+        """获取宏观经济数据 - 通过 yfinance 获取真实市场指标"""
+        # Defaults for indicators that cannot be fetched from yfinance
+        data = {
             "gdp_growth": 2.1,
             "unemployment_rate": 3.9,
             "cpi_yoy": 3.2,
             "core_cpi_yoy": 3.5,
             "pce_yoy": 2.8,
             "fed_funds_rate": 5.25,
-            "treasury_10y": 4.35,
-            "treasury_2y": 4.85,
-            "yield_curve_spread": -0.50,  # 2s10s
             "ism_manufacturing": 48.5,
             "ism_services": 52.3,
             "consumer_confidence": 102.5,
             "retail_sales_mom": 0.3,
             "industrial_production_yoy": 1.2,
-            "housing_starts": 1.35,  # 百万
+            "housing_starts": 1.35,
             "initial_claims": 215000,
-            
-            # 全球数据
             "china_gdp_growth": 5.2,
             "eurozone_gdp_growth": 0.8,
-            "dxy_index": 104.5,
-            "oil_wti": 78.5,
-            "gold_price": 2350,
-            "vix": 15.5
         }
+
+        # Fetch real market data via yfinance (with retry)
+        try:
+            from src.core.yfinance_utils import get_ticker_info
+
+            tickers_map = {
+                "^TNX": "treasury_10y",       # 10-Year Treasury Yield
+                "^VIX": "vix",                # CBOE Volatility Index
+                "DX-Y.NYB": "dxy_index",      # US Dollar Index
+                "CL=F": "oil_wti",            # Crude Oil Futures
+                "GC=F": "gold_price",         # Gold Futures
+                "^GSPC": "sp500",             # S&P 500
+                "^IRX": "treasury_3m",        # 3-Month Treasury Bill
+            }
+
+            for ticker_symbol, key in tickers_map.items():
+                try:
+                    info = get_ticker_info(ticker_symbol)
+                    price = (
+                        info.get("regularMarketPrice")
+                        or info.get("previousClose")
+                        or info.get("currentPrice")
+                    )
+                    if price is not None:
+                        data[key] = float(price)
+                except Exception:
+                    pass  # Keep default
+
+            # Derive yield curve spread: 10Y - 3M
+            t10y = data.get("treasury_10y")
+            t3m = data.get("treasury_3m")
+            if t10y is not None and t3m is not None:
+                data["yield_curve_spread"] = round(t10y - t3m, 2)
+                data["treasury_2y"] = round((t10y + t3m) / 2, 2)  # approximate
+            else:
+                data["yield_curve_spread"] = -0.50
+                data["treasury_2y"] = data.get("treasury_10y", 4.35) + 0.50
+
+        except ImportError:
+            # yfinance not available, use all defaults
+            data.update({
+                "treasury_10y": 4.35,
+                "treasury_2y": 4.85,
+                "yield_curve_spread": -0.50,
+                "dxy_index": 104.5,
+                "oil_wti": 78.5,
+                "gold_price": 2350,
+                "vix": 15.5,
+            })
+        except Exception:
+            data.update({
+                "treasury_10y": 4.35,
+                "treasury_2y": 4.85,
+                "yield_curve_spread": -0.50,
+                "dxy_index": 104.5,
+                "oil_wti": 78.5,
+                "gold_price": 2350,
+                "vix": 15.5,
+            })
+
+        return data
     
     def _assess_economic_cycle(self, data: Dict[str, float]) -> Dict[str, Any]:
         """评估经济周期阶段"""

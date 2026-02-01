@@ -14,7 +14,8 @@ FinMind - 老虎证券适配器
 """
 
 import asyncio
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from typing import Optional, List
 import logging
 
@@ -23,6 +24,8 @@ from .base import (
     BrokerConfig,
     Position,
     AccountBalance,
+    Trade,
+    TradeAction,
     BrokerError,
     AuthenticationError,
     ConnectionError,
@@ -30,6 +33,7 @@ from .base import (
     Currency,
     PositionSide,
 )
+from .trade_store import TradeStore
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,7 @@ class TigerAdapter(BrokerAdapter):
         super().__init__(config)
         self._client = None
         self._trade_client = None
+        self._trade_store = TradeStore("tiger_trades", dedup_keys="order_id")
 
     @property
     def broker_name(self) -> str:
@@ -96,6 +101,7 @@ class TigerAdapter(BrokerAdapter):
             accounts = self._trade_client.get_managed_accounts()
             if accounts:
                 self._account_id = accounts[0]
+                self._trade_store.set_account(self._account_id)
                 logger.info(f"Connected to Tiger, account: {self._account_id}")
             else:
                 raise AuthenticationError("No managed accounts found")
@@ -118,22 +124,29 @@ class TigerAdapter(BrokerAdapter):
                 raise AuthenticationError(f"Tiger authentication failed: {error_msg}")
             raise ConnectionError(f"Tiger connection failed: {error_msg}")
 
-    def _read_private_key(self, path: str) -> str:
-        """读取私钥文件（带路径验证）"""
-        import os
+    def _read_private_key(self, key_input: str) -> str:
+        """读取私钥（支持文件路径或直接字符串内容）
 
-        # 验证文件扩展名
-        if not path.endswith('.pem'):
+        如果输入包含 PEM 头标识 (-----BEGIN)，视为直接内容。
+        否则视为文件路径读取。
+        """
+        # 直接字符串内容
+        if "-----BEGIN" in key_input:
+            if "-----END" not in key_input:
+                raise AuthenticationError("Invalid PEM format: missing END marker")
+            return key_input
+
+        # 文件路径模式
+        path = key_input
+        if not path.endswith(".pem"):
             raise AuthenticationError("Private key file must have .pem extension")
 
-        # 解析为绝对路径并验证
         resolved = os.path.realpath(path)
 
-        with open(resolved, 'r') as f:
+        with open(resolved, "r") as f:
             content = f.read()
 
-        # 验证 PEM 格式
-        if '-----BEGIN' not in content or '-----END' not in content:
+        if "-----BEGIN" not in content or "-----END" not in content:
             raise AuthenticationError("Invalid PEM file format")
 
         return content
@@ -207,7 +220,7 @@ class TigerAdapter(BrokerAdapter):
             positions = []
             for pos in tiger_positions:
                 symbol = pos.contract.symbol
-                market = self._get_market(pos.contract.market)
+                market = self._resolve_market(pos.contract.market)
 
                 # 确定货币
                 currency = self._parse_currency(pos.contract.currency or '')
@@ -242,21 +255,100 @@ class TigerAdapter(BrokerAdapter):
         except Exception as e:
             raise BrokerError(f"Failed to get positions: {e}")
 
-    def _get_market(self, market_str: str) -> Market:
-        """转换老虎市场标识"""
-        market_upper = market_str.upper() if market_str else ""
+    async def get_trades(self, days: int = 365) -> List[Trade]:
+        """获取交易历史（API + 本地持久化记录）"""
+        if not self._connected or not self._trade_client:
+            raise BrokerError("Not connected to Tiger")
 
-        if market_upper in ('US', 'NYSE', 'NASDAQ', 'AMEX'):
-            return Market.US
-        elif market_upper in ('HK', 'HKEX'):
-            return Market.HK
-        elif market_upper in ('CN', 'SH', 'SZ'):
-            return Market.CN
-        elif market_upper == 'SG':
-            return Market.SG
+        try:
+            cutoff_time = datetime.now() - timedelta(days=days)
 
-        return Market.US  # 默认美股
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            end_date = datetime.now().strftime("%Y-%m-%d")
 
+            # Step 1: 从 API 获取并持久化
+            filled_orders = self._trade_client.get_filled_orders(
+                start_time=start_date,
+                end_time=end_date,
+            )
+
+            trade_dicts = []
+            for order in filled_orders:
+                symbol = order.contract.symbol if hasattr(order, "contract") else str(getattr(order, "symbol", ""))
+                market_str = order.contract.market if hasattr(order, "contract") else ""
+                currency_str = order.contract.currency if hasattr(order, "contract") else ""
+
+                action_str = str(getattr(order, "action", "")).upper()
+
+                trade_time_str = None
+                ts = getattr(order, "trade_time", None)
+                if ts:
+                    try:
+                        if isinstance(ts, (int, float)):
+                            trade_time_str = datetime.fromtimestamp(ts / 1000).isoformat()
+                        elif isinstance(ts, str):
+                            trade_time_str = ts
+                        elif isinstance(ts, datetime):
+                            trade_time_str = ts.isoformat()
+                    except Exception:
+                        pass
+
+                trade_dicts.append({
+                    "order_id": str(getattr(order, "order_id", "") or ""),
+                    "symbol": symbol,
+                    "market": market_str,
+                    "currency": currency_str,
+                    "action": action_str,
+                    "quantity": float(getattr(order, "filled_quantity", 0) or getattr(order, "quantity", 0)),
+                    "price": float(getattr(order, "avg_fill_price", 0) or getattr(order, "limit_price", 0)),
+                    "commission": float(getattr(order, "commission", 0) or 0),
+                    "trade_time": trade_time_str,
+                })
+
+            if trade_dicts:
+                self._trade_store.persist(trade_dicts)
+
+            # Step 2: 从本地持久化存储读取
+            persisted = self._trade_store.load()
+
+            trades = []
+            for t in persisted:
+                market = self._resolve_market(t.get("market", ""))
+                currency = self._parse_currency(t.get("currency", ""))
+
+                action_str = str(t.get("action", "")).upper()
+                action = TradeAction.BUY if "BUY" in action_str else TradeAction.SELL
+
+                trade_time = None
+                ts = t.get("trade_time")
+                if ts:
+                    try:
+                        trade_time = datetime.fromisoformat(str(ts))
+                    except Exception:
+                        pass
+
+                if trade_time and trade_time < cutoff_time:
+                    continue
+
+                trades.append(Trade(
+                    symbol=t.get("symbol", ""),
+                    market=market,
+                    action=action,
+                    quantity=float(t.get("quantity", 0)),
+                    price=float(t.get("price", 0)),
+                    commission=float(t.get("commission", 0)),
+                    currency=currency,
+                    trade_time=trade_time,
+                    order_id=str(t.get("order_id", "")),
+                ))
+
+            trades.sort(key=lambda t: t.trade_time or datetime.min, reverse=True)
+            return trades
+
+        except BrokerError:
+            raise
+        except Exception as e:
+            raise BrokerError(f"Failed to get trades: {e}")
 
 # =============================================================================
 # 模拟适配器（用于测试）
@@ -273,6 +365,7 @@ class TigerMockAdapter(BrokerAdapter):
         super().__init__(config)
         self._mock_positions = []
         self._mock_balance = None
+        self._mock_trades: List[Trade] = []
 
     @property
     def broker_name(self) -> str:
@@ -353,6 +446,65 @@ class TigerMockAdapter(BrokerAdapter):
             ),
         ]
 
+        self._mock_trades = [
+            Trade(
+                symbol="AAPL",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=150,
+                price=160.00,
+                commission=1.50,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=240),
+                order_id="TG-MOCK-001",
+            ),
+            Trade(
+                symbol="AMZN",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=30,
+                price=165.00,
+                commission=1.50,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=160),
+                order_id="TG-MOCK-002",
+            ),
+            Trade(
+                symbol="META",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=50,
+                price=380.00,
+                commission=1.50,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=100),
+                order_id="TG-MOCK-003",
+            ),
+            Trade(
+                symbol="TSLA",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=40,
+                price=185.00,
+                commission=1.50,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=50),
+                order_id="TG-MOCK-004",
+            ),
+            Trade(
+                symbol="TSLA",
+                market=Market.US,
+                action=TradeAction.SELL,
+                quantity=40,
+                price=250.00,
+                commission=1.50,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=5),
+                order_id="TG-MOCK-005",
+                realized_pnl=2600.0,
+            ),
+        ]
+
     async def get_account_balance(self) -> AccountBalance:
         """获取模拟账户余额"""
         if not self._connected:
@@ -364,3 +516,10 @@ class TigerMockAdapter(BrokerAdapter):
         if not self._connected:
             raise BrokerError("Not connected")
         return self._mock_positions
+
+    async def get_trades(self, days: int = 365) -> List[Trade]:
+        """获取模拟交易历史"""
+        if not self._connected:
+            raise BrokerError("Not connected")
+        cutoff = datetime.now() - timedelta(days=days)
+        return [t for t in self._mock_trades if t.trade_time and t.trade_time >= cutoff]

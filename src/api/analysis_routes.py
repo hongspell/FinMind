@@ -206,17 +206,27 @@ async def get_volatility(
     """
     获取股票历史波动率
 
-    注意：此接口需要外部数据源支持，当前返回错误提示
+    使用 yfinance 历史数据计算年化和日波动率
     """
-    # TODO: 集成真实的历史数据源（如 yfinance, polygon.io 等）
-    raise HTTPException(
-        status_code=501,
-        detail={
-            "error": "历史波动率数据暂不可用",
-            "message": f"获取 {symbol.upper()} 的历史波动率需要集成外部数据源",
-            "suggestion": "请在蒙特卡洛模拟请求中手动指定 annual_volatility 参数"
+    try:
+        from ..core.quote_service import fetch_volatility as _fetch_vol
+
+        result = _fetch_vol(symbol, days)
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unable to calculate volatility for {symbol.upper()}. Insufficient historical data."
+            )
+
+        return {
+            "success": True,
+            "data": result,
         }
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Volatility calculation error for {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Volatility calculation failed")
 
 
 # ============================================================================

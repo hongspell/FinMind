@@ -109,14 +109,43 @@ cp .env.example .env
 # 编辑 .env 添加您的API密钥
 ```
 
-### Docker部署
+### Docker 部署
 
 ```bash
-# 使用Docker Compose启动完整栈
+# 使用 Docker Compose 启动完整栈
 docker-compose up -d
 
 # 查看日志
 docker-compose logs -f financeai-api
+```
+
+### 本地开发（推荐）
+
+```bash
+# 1. 启动数据库和缓存服务
+make docker-up
+# 启动 TimescaleDB (PostgreSQL) 端口 5432 和 Redis 端口 6379
+
+# 2. 启动 API 服务器（终端 1）
+make api
+# API 运行在 http://localhost:8000
+
+# 3. 启动前端开发服务器（终端 2）
+make web
+# 前端运行在 http://localhost:5173
+```
+
+**数据库管理:**
+
+```bash
+# 连接数据库
+make db-shell
+
+# 重置数据库（注意：会删除所有数据）
+make db-reset
+
+# 查看数据库日志
+docker-compose logs -f timescaledb
 ```
 
 ### 基本用法
@@ -206,7 +235,7 @@ print(f"置信度: {result.confidence.overall:.1%}")
 #### REST API
 
 ```bash
-# 创建分析任务
+# 创建分析任务（异步）
 curl -X POST "http://localhost:8000/api/v1/analyze" \
   -H "Content-Type: application/json" \
   -d '{"target": "AAPL", "chain": "full_analysis"}'
@@ -214,47 +243,100 @@ curl -X POST "http://localhost:8000/api/v1/analyze" \
 # 查询任务状态
 curl "http://localhost:8000/api/v1/analyze/{task_id}"
 
+# 流式获取任务进度 (SSE)
+curl "http://localhost:8000/api/v1/analyze/{task_id}/stream"
+
 # 获取快速报价
-curl "http://localhost:8000/api/v1/quote/AAPL"
+curl "http://localhost:8000/api/quote/AAPL"
+
+# DCF 敏感性分析
+curl -X POST "http://localhost:8000/api/v1/valuation/sensitivity" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "AAPL", "discount_rate": 0.10, "growth_rate": 0.08}'
+
+# 量化回测
+curl -X POST "http://localhost:8000/api/v1/backtest" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "AAPL", "backtest_date": "2025-01-01", "forward_days": 90}'
 ```
 
 ## 📁 项目结构
 
 ```
 FinMind/
+├── api/
+│   └── main.py              # FastAPI 应用入口
 ├── config/
-│   ├── agents/              # Agent行为配置
+│   ├── agents/              # Agent 行为配置
 │   │   ├── valuation_agent.yaml
-│   │   └── technical_agent.yaml
-│   ├── chains/              # 分析链DAG定义
+│   │   ├── technical_agent.yaml
+│   │   ├── earnings_agent.yaml
+│   │   ├── risk_agent.yaml
+│   │   ├── sentiment_agent.yaml
+│   │   └── strategy_agent.yaml
+│   ├── chains/              # 分析链 DAG 定义
 │   │   ├── full_analysis.yaml
-│   │   └── quick_scan.yaml
+│   │   ├── quick_scan.yaml
+│   │   └── earnings_deep_dive.yaml
 │   ├── methodologies/       # 方法论配置
-│   │   └── dcf.yaml
+│   │   ├── dcf.yaml
+│   │   └── comparables.yaml
 │   └── prompts/             # 提示词模板
+│       └── valuation_prompts.yaml
 ├── src/
 │   ├── core/                # 核心框架
 │   │   ├── base.py          # 基础类定义
 │   │   ├── config_loader.py # 配置加载器
-│   │   └── data_and_chain.py# 数据提供者+链执行器
-│   ├── llm/                 # LLM网关
-│   │   ├── gateway.py       # 统一接口
+│   │   ├── data_and_chain.py# 数据提供者 + 链执行器
+│   │   ├── cache.py         # Redis 缓存层
+│   │   ├── backtest.py      # 量化回测引擎
+│   │   ├── monte_carlo.py   # 蒙特卡洛模拟
+│   │   ├── portfolio_analysis.py  # 投资组合健康度 & 风险评分
+│   │   ├── portfolio_tracker.py   # 投资组合跟踪
+│   │   ├── quote_service.py # 实时行情服务
+│   │   ├── market_hours.py  # 市场交易时段检测
+│   │   ├── report_generator.py    # Markdown 报告生成
+│   │   └── database.py      # 数据库模型 (TimescaleDB)
+│   ├── llm/                 # LLM 网关
+│   │   ├── gateway.py       # 统一接口 + 成本追踪
 │   │   └── providers.py     # 各模型实现
-│   ├── agents/              # Agent实现
-│   │   ├── valuation_agent.py
-│   │   ├── technical_agent.py
-│   │   ├── earnings_agent.py
-│   │   ├── sentiment_risk_agent.py
-│   │   ├── strategy_agent.py
-│   │   ├── macro_agent.py
-│   │   └── sector_agent.py
-│   ├── api/                 # REST API
-│   │   └── main.py
-│   └── main.py              # CLI入口
+│   ├── agents/              # Agent 实现
+│   │   ├── valuation_agent.py     # DCF、可比公司、历史估值
+│   │   ├── technical_agent.py     # 趋势、指标、形态
+│   │   ├── earnings_agent.py      # 收入质量、利润率
+│   │   ├── sentiment_risk_agent.py# 情绪 + 风险评估
+│   │   ├── strategy_agent.py      # 综合决策
+│   │   ├── macro_agent.py         # 宏观环境
+│   │   └── sector_agent.py        # 行业 & 竞争
+│   ├── brokers/             # 券商适配器（只读）
+│   │   ├── base.py          # 抽象基类 + 数据模型
+│   │   ├── trade_store.py   # 本地交易记录持久化组件
+│   │   ├── ibkr.py          # IBKR TWS API 适配器
+│   │   ├── ibkr_cpapi.py    # IBKR Client Portal REST 适配器
+│   │   ├── ibkr_flex.py     # IBKR Flex Queries（历史交易导入）
+│   │   ├── futu.py          # 富途 OpenD 适配器
+│   │   ├── tiger.py         # 老虎证券 Open API 适配器
+│   │   └── portfolio.py     # 适配器注册 + 工厂
+│   ├── api/                 # API 路由模块
+│   │   ├── broker_routes.py # 券商连接 & 投资组合端点
+│   │   ├── analysis_routes.py # 分析端点
+│   │   ├── models.py        # Pydantic 请求/响应模型
+│   │   └── task_store.py    # 异步任务管理
+│   └── main.py              # CLI 入口
+├── web/                     # React 前端 (Vite + Ant Design)
+│   └── src/
+│       ├── pages/           # 首页、分析、投资组合、设置
+│       ├── components/      # 图表、分析面板、布局
+│       ├── services/        # API & 券商 API 客户端
+│       ├── stores/          # Zustand 状态管理
+│       ├── hooks/           # 自定义 React Hooks
+│       ├── types/           # TypeScript 类型定义
+│       └── styles/          # 主题 & 全局样式
 ├── tests/                   # 测试套件
-├── scripts/                 # 工具脚本
+├── scripts/                 # 工具脚本 (init-db.sql, start-dev.sh)
 ├── docker-compose.yml
 ├── Dockerfile
+├── Makefile                 # 开发快捷命令 (make api, make web 等)
 └── requirements.txt
 ```
 
@@ -400,19 +482,158 @@ pytest tests/test_report_generator.py -v
 pytest tests/ -v --cov=src --cov-report=html
 ```
 
+## 🔗 券商集成
+
+FinMind 支持多家券商的数据对接，用于个性化投资组合分析。所有适配器均为**只读**（不支持交易），并提供本地交易历史持久化。
+
+| 券商 | API | 状态 | 功能 |
+|------|-----|------|------|
+| **IBKR** (盈透证券) | TWS API (`ib_insync`) | ✅ 就绪 | 组合、持仓、余额、交易历史 |
+| **IBKR** (盈透证券) | Client Portal REST API | ✅ 就绪 | 组合、持仓、余额、交易历史 |
+| **IBKR** (盈透证券) | Flex Queries | ✅ 就绪 | 完整历史交易导入 |
+| **富途证券** | OpenD API (`futu-api`) | ✅ 就绪 | 组合、持仓、余额、交易历史 |
+| **老虎证券** | Tiger Open API (`tigeropen`) | ✅ 就绪 | 组合、持仓、余额、交易历史 |
+
+### 架构设计
+
+- **`BrokerAdapter`** 抽象基类定义统一接口
+- **`TradeStore`** 组件处理本地 JSON 持久化，支持可配置的去重字段
+- 每个适配器通过组合注入 `TradeStore` 实例 —— 无重复存储逻辑
+- 市场/交易所识别通过 `BrokerAdapter._resolve_market()` 统一处理
+- 所有适配器都包含 **Mock** 变体，可在无真实连接的情况下进行演示/测试
+
+### Web UI 设置
+
+1. 进入 **设置** 页面
+2. 找到 **券商连接** 区域
+3. 点击对应券商的 **连接** 按钮
+4. 填写连接信息（主机、端口、凭证）
+5. 在 `/portfolio` 查看投资组合
+
+也可以启用 **演示模式**，使用模拟数据进行测试，无需连接真实券商。
+
+### API 设置
+
+```bash
+# IBKR TWS: 运行 IB Gateway / TWS 并启用 API
+# IBKR Client Portal: 运行 CP Gateway，在 https://localhost:5000 登录
+# 富途: 运行 OpenD 并登录
+# 老虎: 在开发者平台注册应用
+
+# 通过 API 连接
+curl -X POST "http://localhost:8000/api/v1/broker/connect" \
+  -H "Content-Type: application/json" \
+  -d '{"broker_type": "ibkr", "ibkr_port": 4001}'
+
+# 通过 Client Portal API 连接
+curl -X POST "http://localhost:8000/api/v1/broker/connect" \
+  -H "Content-Type: application/json" \
+  -d '{"broker_type": "ibkr_cp"}'
+
+# 获取统一投资组合
+curl "http://localhost:8000/api/v1/broker/unified"
+
+# 获取交易历史
+curl "http://localhost:8000/api/v1/broker/trades/ibkr"
+
+# 通过 Flex Queries 导入历史交易
+curl -X POST "http://localhost:8000/api/v1/broker/ibkr/flex-import" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "your-flex-token", "query_id": "your-query-id", "account_id": "your-account"}'
+```
+
+### 持仓感知分析
+
+```python
+from src.core.portfolio_analysis import PortfolioAnalyzer
+
+analyzer = PortfolioAnalyzer()
+result = analyzer.analyze(portfolio_summary)
+
+print(f"健康评分: {result.health_score}/100")
+print(f"风险评分: {result.risk_score}/100")
+for rec in result.recommendations:
+    print(f"{rec.symbol}: {rec.action} - {rec.reason}")
+```
+
+## 📊 高级功能
+
+### 蒙特卡洛模拟
+
+```python
+from src.core.monte_carlo import MonteCarloSimulator
+
+simulator = MonteCarloSimulator()
+
+# 单只股票模拟
+result = simulator.simulate_price(
+    symbol="AAPL",
+    current_price=175.0,
+    annual_return=0.10,
+    annual_volatility=0.25,
+)
+print(f"95% VaR: ${result.var_values[0.95]:.2f}")
+
+# 投资组合 VaR
+portfolio_result = simulator.simulate_portfolio(holdings)
+print(f"夏普比率: {portfolio_result.sharpe_ratio:.2f}")
+```
+
+### Redis 缓存
+
+```python
+from src.core.cache import CacheService
+
+cache = CacheService()
+await cache.initialize()
+
+# 缓存函数
+@cache.cached(ttl=300, key_prefix="stock:")
+async def get_stock_data(symbol: str):
+    return await fetch_from_api(symbol)
+```
+
+## 🖥️ Web UI 功能
+
+Web 界面提供完整的投资组合管理和分析体验：
+
+### 页面
+
+| 页面 | 路径 | 说明 |
+|------|------|------|
+| 首页 | `/` | 快速股票搜索、热门股票 |
+| 分析 | `/analysis/:symbol` | 多时间框架技术分析 |
+| 投资组合 | `/portfolio` | 统一组合视图、健康评分、风险指标 |
+| 自选股 | `/watchlist` | 跟踪关注的股票 |
+| 设置 | `/settings` | 券商连接、API 密钥、偏好设置 |
+
+### 风险分析功能
+
+- **蒙特卡洛模拟**: 可配置时间范围的价格路径可视化
+- **VaR/CVaR**: 95% 和 99% 置信水平的在险价值
+- **投资组合评分**: 健康度 (0-100)、风险 (0-100)、分散度 (0-100)
+- **持仓建议**: AI 驱动的买入/持有/卖出建议
+
 ## 🛣️ 路线图
 
 - [x] 核心框架
-- [x] LLM网关
-- [x] 基础Agent (Valuation, Technical, Earnings)
-- [x] 分析链执行器
-- [x] REST API
-- [x] CLI工具
+- [x] LLM 网关（多模型 + 成本追踪）
+- [x] 基础 Agent (Valuation, Technical, Earnings, Macro, Sector, Strategy)
+- [x] 分析链执行器（DAG 驱动）
+- [x] REST API (FastAPI + 异步任务管理)
+- [x] CLI 工具 (analyze, scan, valuation, serve)
 - [x] 双语支持 (中文/英文)
-- [ ] Web UI
+- [x] Web UI (React + Vite + Ant Design)
+- [x] 券商集成 (IBKR TWS, IBKR Client Portal, IBKR Flex, 富途, 老虎)
+- [x] Redis 缓存层
+- [x] 蒙特卡洛模拟 & VaR/CVaR
+- [x] 投资组合分析（健康度、风险、分散度评分）
+- [x] 投资组合管理 UI（持仓、余额、交易历史）
+- [x] 风险分析图表
+- [x] 量化回测引擎（技术指标 + DCF）
+- [x] DCF 敏感性分析（5x5 矩阵）
 - [ ] 实时数据流
-- [ ] 回测框架
-- [ ] MCP Server集成
+- [ ] MCP Server 集成
 
 ## 📄 许可证
 

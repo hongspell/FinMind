@@ -63,7 +63,7 @@ export const brokerApi = {
   },
 
   // 获取交易历史
-  getTrades: async (brokerType: BrokerType, days: number = 7): Promise<any> => {
+  getTrades: async (brokerType: BrokerType, days: number = 365): Promise<any> => {
     return api.get(`/broker/trades/${brokerType}`, { params: { days } });
   },
 

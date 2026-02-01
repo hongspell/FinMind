@@ -7,10 +7,13 @@ from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+import logging
 import yaml
 import json
 import asyncio
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 # ============== 基础数据结构 ==============
@@ -147,6 +150,7 @@ class AnalysisContext:
     previous_results: Dict[str, AgentOutput] = field(default_factory=dict)
     custom_params: Dict[str, Any] = field(default_factory=dict)
     session_id: Optional[str] = None
+    trace_id: Optional[str] = None
 
 
 # ============== LLM 抽象层 ==============
@@ -542,10 +546,14 @@ class BaseAgent(ABC):
     ) -> str:
         """调用 LLM"""
         system_prompt = self._build_system_prompt(context)
-        
+
         model = kwargs.pop('model', None) or self.llm_config.get('preferred_model', 'auto')
         temperature = kwargs.pop('temperature', None) or self.llm_config.get('temperature', 0.3)
-        
+
+        trace_id = getattr(context, 'trace_id', None) or ''
+        if trace_id:
+            logger.info(f"[trace:{trace_id}] LLM call: model={model}, task={task_type}")
+
         response = await self.llm.complete(
             model=model,
             system=system_prompt,
@@ -554,7 +562,7 @@ class BaseAgent(ABC):
             task_type=task_type,
             **kwargs
         )
-        
+
         return response.content
     
     def _create_output(

@@ -8,9 +8,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, date, timedelta
 from enum import Enum
 import asyncio
+import logging
 import yaml
 import json
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Extended hours support
 from src.core.market_hours import (
@@ -157,11 +160,10 @@ class YFinanceProvider(DataProvider):
     ) -> DataResult:
         """获取数据"""
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(symbol)
+            from src.core.yfinance_utils import get_ticker_info, get_ticker_history
 
             if data_type == "price_history":
-                hist = ticker.history(start=start_date, end=end_date, period="1y" if not start_date else None)
+                hist = get_ticker_history(symbol, period="1y" if not start_date else None, start=start_date, end=end_date)
                 data = {
                     'prices': hist['Close'].tolist() if not hist.empty else [],
                     'volumes': hist['Volume'].tolist() if not hist.empty else [],
@@ -173,7 +175,7 @@ class YFinanceProvider(DataProvider):
                 quality = DataQuality.HIGH
 
             elif data_type == "current_price":
-                info = ticker.info
+                info = get_ticker_info(symbol)
 
                 # Get regular market price
                 regular_price = info.get('currentPrice') or info.get('regularMarketPrice')
@@ -236,7 +238,7 @@ class YFinanceProvider(DataProvider):
                 quality = DataQuality.HIGH
 
             elif data_type == "fundamentals":
-                info = ticker.info
+                info = get_ticker_info(symbol)
                 data = {
                     'revenue': info.get('totalRevenue'),
                     'net_income': info.get('netIncomeToCommon'),
@@ -315,16 +317,16 @@ class YFinanceProvider(DataProvider):
 
 
 class SECProvider(DataProvider):
-    """SEC 财报数据提供者"""
-    
+    """SEC 财报数据提供者 - 使用 yfinance 作为数据源"""
+
     @property
     def name(self) -> str:
         return "sec_filings"
-    
+
     @property
     def data_types(self) -> List[str]:
         return ["10k", "10q", "8k", "earnings_call"]
-    
+
     async def fetch(
         self,
         symbol: str,
@@ -333,17 +335,61 @@ class SECProvider(DataProvider):
         end_date: Optional[date] = None,
         **kwargs
     ) -> DataResult:
-        """获取 SEC 文件"""
-        # 实际实现中调用 SEC EDGAR API
-        return DataResult(
-            data={'filings': []},
-            source=self.name,
-            fetched_at=datetime.now(),
-            quality=DataQuality.HIGH,
-            completeness=0.8,
-            freshness="quarterly"
-        )
-    
+        """获取财务报表数据 via yfinance"""
+        try:
+            from src.core.yfinance_utils import get_ticker_financials
+            import math
+
+            financials = get_ticker_financials(symbol)
+
+            def _safe(val):
+                if val is None or (isinstance(val, float) and math.isnan(val)):
+                    return None
+                return float(val)
+
+            def _df_to_records(df):
+                if df is None or df.empty:
+                    return []
+                records = []
+                for col in df.columns:
+                    period_data = {}
+                    for idx in df.index:
+                        period_data[str(idx)] = _safe(df.at[idx, col])
+                    period_data["_period"] = col.strftime("%Y-%m-%d") if hasattr(col, "strftime") else str(col)
+                    records.append(period_data)
+                return records
+
+            data = {
+                "income_statement": _df_to_records(financials["income_stmt"]),
+                "balance_sheet": _df_to_records(financials["balance_sheet"]),
+                "cash_flow": _df_to_records(financials["cashflow"]),
+            }
+
+            has_data = any(
+                len(data[k]) > 0 for k in ("income_statement", "balance_sheet", "cash_flow")
+            )
+
+            return DataResult(
+                data=data,
+                source=self.name,
+                fetched_at=datetime.now(),
+                quality=DataQuality.MEDIUM if has_data else DataQuality.UNKNOWN,
+                completeness=0.7 if has_data else 0.0,
+                freshness="quarterly",
+                metadata={"symbol": symbol, "data_type": data_type},
+            )
+
+        except Exception as e:
+            return DataResult(
+                data={"filings": []},
+                source=self.name,
+                fetched_at=datetime.now(),
+                quality=DataQuality.UNKNOWN,
+                completeness=0.0,
+                freshness="quarterly",
+                warnings=[str(e)],
+            )
+
     async def health_check(self) -> bool:
         return True
 
@@ -370,25 +416,50 @@ class NewsProvider(DataProvider):
         end_date: Optional[date] = None,
         **kwargs
     ) -> DataResult:
-        """获取新闻数据"""
-        lookback_days = kwargs.get('lookback_days', 7)
-        
-        # 实际实现中调用新闻 API
+        """获取新闻数据 - 使用 yfinance ticker.news"""
+        try:
+            from src.core.yfinance_utils import get_ticker_news
+            raw_news = get_ticker_news(symbol, max_items=15)
+
+            articles = []
+            for item in raw_news:
+                article = {
+                    'title': item.get('title', ''),
+                    'source': item.get('publisher', 'Unknown'),
+                    'date': datetime.fromtimestamp(item['providerPublishTime']).isoformat() if 'providerPublishTime' in item else datetime.now().isoformat(),
+                    'link': item.get('link', ''),
+                    'type': item.get('type', 'STORY'),
+                }
+                articles.append(article)
+
+            if articles:
+                return DataResult(
+                    data={'articles': articles},
+                    source=self.name,
+                    fetched_at=datetime.now(),
+                    quality=DataQuality.MEDIUM,
+                    completeness=min(len(articles) / 10.0, 1.0),
+                    freshness="hourly"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to fetch news from yfinance for {symbol}: {e}")
+
+        # Fallback: single placeholder article
         return DataResult(
             data={
                 'articles': [
                     {
-                        'title': f'{symbol} reports strong earnings',
-                        'source': 'Reuters',
+                        'title': f'{symbol} - no recent news available',
+                        'source': 'placeholder',
                         'date': datetime.now().isoformat(),
-                        'sentiment': 0.7
+                        'link': '',
                     }
                 ]
             },
             source=self.name,
             fetched_at=datetime.now(),
-            quality=DataQuality.MEDIUM,
-            completeness=0.7,
+            quality=DataQuality.LOW,
+            completeness=0.1,
             freshness="hourly"
         )
     
@@ -589,7 +660,9 @@ class ChainExecutor:
         context: Any
     ) -> Any:
         """执行单个任务"""
-        self._log(f"Executing task: {task.name} (agent: {task.agent})")
+        trace_id = getattr(context, 'trace_id', None) or ''
+        trace_prefix = f"[trace:{trace_id}] " if trace_id else ""
+        self._log(f"{trace_prefix}Executing task: {task.name} (agent: {task.agent})")
         
         # 获取 Agent
         agent = self.agents.get(task.agent)
@@ -695,11 +768,11 @@ class SimpleDataCollector:
 
     async def fetch_market_data(self, context, inputs: Dict = None) -> Dict:
         """获取市场数据，返回估值模型需要的格式（包含扩展交易时段数据）"""
+        from src.core.yfinance_utils import get_ticker_info, get_ticker_history
         target = context.target if hasattr(context, 'target') else str(context)
         try:
-            ticker = self._get_ticker(target)
-            info = ticker.info
-            hist = ticker.history(period='1y')
+            info = get_ticker_info(target)
+            hist = get_ticker_history(target, period='1y')
 
             # Get regular market price
             regular_price = info.get('currentPrice') or info.get('regularMarketPrice', 0)
@@ -774,10 +847,10 @@ class SimpleDataCollector:
 
     async def fetch_financials(self, context, inputs: Dict = None) -> Dict:
         """获取财务数据，返回估值模型需要的格式"""
+        from src.core.yfinance_utils import get_ticker_info
         target = context.target if hasattr(context, 'target') else str(context)
         try:
-            ticker = self._get_ticker(target)
-            info = ticker.info
+            info = get_ticker_info(target)
 
             # 计算自由现金流
             fcf = info.get('freeCashflow', 0) or 0
@@ -829,14 +902,14 @@ class SimpleDataCollector:
 
     async def fetch_news(self, context, inputs: Dict = None) -> Dict:
         """获取新闻数据"""
+        from src.core.yfinance_utils import get_ticker_news
         target = context.target if hasattr(context, 'target') else str(context)
         try:
-            ticker = self._get_ticker(target)
-            news = ticker.news or []
+            news = get_ticker_news(target, max_items=10)
 
             # 转换为分析需要的格式
             news_items = []
-            for item in news[:10]:  # 最多10条
+            for item in news:
                 news_items.append({
                     'title': item.get('title', ''),
                     'publisher': item.get('publisher', ''),
@@ -856,10 +929,10 @@ class SimpleDataCollector:
 
     async def fetch_analyst_data(self, context, inputs: Dict = None) -> Dict:
         """获取分析师数据"""
+        from src.core.yfinance_utils import get_ticker_info
         target = context.target if hasattr(context, 'target') else str(context)
         try:
-            ticker = self._get_ticker(target)
-            info = ticker.info
+            info = get_ticker_info(target)
 
             return {
                 'target_price_high': info.get('targetHighPrice'),
@@ -971,24 +1044,29 @@ class FinanceAI:
         self,
         target: str,
         chain: str = "full_analysis",
-        custom_params: Dict[str, Any] = None
+        custom_params: Dict[str, Any] = None,
+        trace_id: str = None,
     ) -> 'AnalysisResult':
         """
         执行分析
-        
+
         Args:
             target: 分析标的（股票代码等）
             chain: 分析链名称
             custom_params: 自定义参数
+            trace_id: 调用链追踪 ID
         """
         from src.core.base import AnalysisContext
-        
+
         # 创建上下文
         context = AnalysisContext(
             target=target,
             analysis_date=datetime.now(),
-            custom_params=custom_params or {}
+            custom_params=custom_params or {},
+            trace_id=trace_id,
         )
+        if trace_id:
+            logger.info(f"[trace:{trace_id}] Starting analysis for {target}, chain={chain}")
         
         # 加载分析链
         chain_path = self.config_dir / 'chains' / f'{chain}.yaml'

@@ -22,6 +22,7 @@ from .base import (
     PositionSide,
 )
 from .ibkr import IBKRAdapter, IBKRMockAdapter
+from .ibkr_cpapi import IBKRClientPortalAdapter, IBKRClientPortalMockAdapter
 from .futu import FutuAdapter, FutuMockAdapter
 from .tiger import TigerAdapter, TigerMockAdapter
 
@@ -109,12 +110,14 @@ class UnifiedPortfolioSummary:
 
 BROKER_ADAPTERS: Dict[str, Type[BrokerAdapter]] = {
     "ibkr": IBKRAdapter,
+    "ibkr_cp": IBKRClientPortalAdapter,
     "futu": FutuAdapter,
     "tiger": TigerAdapter,
 }
 
 MOCK_ADAPTERS: Dict[str, Type[BrokerAdapter]] = {
     "ibkr": IBKRMockAdapter,
+    "ibkr_cp": IBKRClientPortalMockAdapter,
     "futu": FutuMockAdapter,
     "tiger": TigerMockAdapter,
 }

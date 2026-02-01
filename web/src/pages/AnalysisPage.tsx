@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { Row, Col, Spin, Alert, Space, Typography, Button, message } from 'antd';
+import { Row, Col, Spin, Alert, Space, Typography, Button, message, Tabs } from 'antd';
 import { ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import StockHeader from '../components/Stock/StockHeader';
 import TechnicalOverview from '../components/Analysis/TechnicalOverview';
 import TimeframeAnalysis from '../components/Analysis/TimeframeAnalysis';
 import RiskAnalysis from '../components/Analysis/RiskAnalysis';
+import SensitivityAnalysis from '../components/Analysis/SensitivityAnalysis';
+import BacktestPanel from '../components/Analysis/BacktestPanel';
 import PriceChart from '../components/Charts/PriceChart';
 import { useAnalysisStore } from '../stores/analysisStore';
 import { useThemeColors } from '../hooks/useThemeColors';
@@ -234,6 +236,31 @@ ${isZh ? '免责声明：本报告仅供参考，不构成投资建议。' : 'Di
           <RiskAnalysis
             symbol={currentAnalysis.symbol}
             currentPrice={market_data.current_price}
+          />
+        </Col>
+
+        {/* DCF Sensitivity & Backtest */}
+        <Col span={24}>
+          <Tabs
+            items={[
+              {
+                key: 'sensitivity',
+                label: t('analysis.sensitivity') || (i18n.language?.startsWith('zh') ? 'DCF 敏感度' : 'DCF Sensitivity'),
+                children: (
+                  <SensitivityAnalysis
+                    symbol={currentAnalysis.symbol}
+                    currentPrice={market_data.current_price}
+                  />
+                ),
+              },
+              {
+                key: 'backtest',
+                label: t('analysis.backtest') || (i18n.language?.startsWith('zh') ? '量化回测' : 'Backtest'),
+                children: (
+                  <BacktestPanel symbol={currentAnalysis.symbol} />
+                ),
+              },
+            ]}
           />
         </Col>
       </Row>

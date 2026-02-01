@@ -430,16 +430,37 @@ class SectorAgent(BaseAgent):
         )
     
     def _identify_sector(self, target: str) -> Dict[str, Any]:
-        """识别行业和竞争对手"""
+        """识别行业和竞争对手 - 优先使用 yfinance 真实数据"""
         target_upper = target.upper()
+
+        # Try yfinance first for real sector/industry data
+        try:
+            from src.core.yfinance_utils import get_ticker_info
+            info = get_ticker_info(target_upper)
+            sector = info.get("sector")
+            industry = info.get("industry")
+            if sector and industry:
+                # Use hardcoded peers if available, otherwise provide defaults
+                if target_upper in self.sector_taxonomy:
+                    peers = self.sector_taxonomy[target_upper]["peers"]
+                else:
+                    peers = ["MSFT", "GOOGL", "AAPL", "AMZN"]
+                return {
+                    "sector": sector,
+                    "industry": industry,
+                    "peers": peers,
+                }
+        except Exception:
+            pass
+
+        # Fall back to hardcoded taxonomy
         if target_upper in self.sector_taxonomy:
             return self.sector_taxonomy[target_upper]
-        
-        # 默认返回科技行业
+
         return {
             "sector": "Technology",
             "industry": "Software & Services",
-            "peers": ["MSFT", "GOOGL", "CRM", "ORCL"]
+            "peers": ["MSFT", "GOOGL", "CRM", "ORCL"],
         }
     
     def _analyze_porter_forces(self, industry: str) -> PorterFiveForces:

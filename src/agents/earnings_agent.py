@@ -1652,36 +1652,139 @@ async def analyze_earnings(symbol: str, context: Optional[Dict] = None) -> Earni
 
 # ============== EarningsAgent ChainExecutor 适配器方法 ==============
 
+def _fetch_yfinance_financials(symbol: str) -> Dict[str, List[Dict]]:
+    """Fetch real financial statements from yfinance for EarningsAgent."""
+    try:
+        from src.core.yfinance_utils import get_ticker_financials
+        import math
+
+        financials = get_ticker_financials(symbol)
+
+        def _safe(val):
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                return 0
+            return float(val)
+
+        def _parse_income(df) -> List[Dict]:
+            if df is None or df.empty:
+                return []
+            results = []
+            for col in df.columns:
+                period = df[col]
+                results.append({
+                    "revenue": _safe(period.get("Total Revenue", period.get("Operating Revenue", 0))),
+                    "cost_of_revenue": _safe(period.get("Cost Of Revenue", 0)),
+                    "gross_profit": _safe(period.get("Gross Profit", 0)),
+                    "operating_income": _safe(period.get("Operating Income", period.get("EBIT", 0))),
+                    "ebitda": _safe(period.get("EBITDA", 0)),
+                    "net_income": _safe(period.get("Net Income", 0)),
+                    "sga": _safe(period.get("Selling General And Administration", 0)),
+                    "rd": _safe(period.get("Research And Development", 0)),
+                    "depreciation": _safe(period.get("Depreciation And Amortization In Income Statement",
+                                          period.get("Reconciled Depreciation", 0))),
+                    "interest_expense": _safe(period.get("Interest Expense", 0)),
+                    "shares_outstanding": _safe(period.get("Diluted Average Shares",
+                                                period.get("Basic Average Shares", 1))),
+                })
+            return results
+
+        def _parse_balance(df) -> List[Dict]:
+            if df is None or df.empty:
+                return []
+            results = []
+            for col in df.columns:
+                period = df[col]
+                results.append({
+                    "total_assets": _safe(period.get("Total Assets", 0)),
+                    "current_assets": _safe(period.get("Current Assets", 0)),
+                    "cash": _safe(period.get("Cash And Cash Equivalents",
+                                  period.get("Cash Cash Equivalents And Short Term Investments", 0))),
+                    "receivables": _safe(period.get("Accounts Receivable",
+                                         period.get("Net Receivables", 0))),
+                    "inventory": _safe(period.get("Inventory", 0)),
+                    "ppe": _safe(period.get("Net PPE", period.get("Gross PPE", 0))),
+                    "goodwill": _safe(period.get("Goodwill", 0)),
+                    "intangibles": _safe(period.get("Other Intangible Assets",
+                                         period.get("Goodwill And Other Intangible Assets", 0))),
+                    "current_liabilities": _safe(period.get("Current Liabilities", 0)),
+                    "payables": _safe(period.get("Accounts Payable",
+                                      period.get("Current Accrued Expenses", 0))),
+                    "total_debt": _safe(period.get("Total Debt", 0)),
+                    "total_equity": _safe(period.get("Total Equity Gross Minority Interest",
+                                          period.get("Stockholders Equity", 0))),
+                })
+            return results
+
+        def _parse_cashflow(df) -> List[Dict]:
+            if df is None or df.empty:
+                return []
+            results = []
+            for col in df.columns:
+                period = df[col]
+                results.append({
+                    "operating_cash_flow": _safe(period.get("Operating Cash Flow", 0)),
+                    "capex": _safe(period.get("Capital Expenditure", 0)),
+                    "depreciation": _safe(period.get("Depreciation And Amortization", 0)),
+                    "working_capital_change": _safe(period.get("Change In Working Capital", 0)),
+                    "dividends_paid": _safe(period.get("Common Stock Dividend Paid",
+                                            period.get("Cash Dividends Paid", 0))),
+                    "share_repurchases": _safe(period.get("Repurchase Of Capital Stock",
+                                               period.get("Common Stock Payments", 0))),
+                })
+            return results
+
+        income = _parse_income(financials["income_stmt"])
+        balance = _parse_balance(financials["balance_sheet"])
+        cashflow = _parse_cashflow(financials["cashflow"])
+
+        if income:
+            return {
+                "income_statement": income,
+                "balance_sheet": balance,
+                "cash_flow": cashflow,
+            }
+    except Exception:
+        pass
+
+    return {}
+
+
 async def _earnings_analyze_fundamentals(self, context, inputs: Dict = None) -> EarningsAnalysisResult:
     """
     ChainExecutor 调用的适配方法
 
     将 ChainExecutor 的调用格式适配到 analyze 方法
+    优先使用 yfinance 获取真实财务数据
     """
-    # 从 context 获取 symbol
     symbol = 'UNKNOWN'
     if hasattr(context, 'target'):
         symbol = context.target
     elif isinstance(context, dict):
         symbol = context.get('target', context.get('symbol', 'UNKNOWN'))
 
-    # 从 inputs 中提取财务数据
     inputs = inputs or {}
     financial_data = inputs.get('financial_data', {})
     analyst_data = inputs.get('analyst_data', {})
 
-    # 构建分析上下文
+    # Try to fetch real financial data from yfinance
+    financials = {
+        'income_statement': financial_data.get('income_statement', []),
+        'balance_sheet': financial_data.get('balance_sheet', []),
+        'cash_flow': financial_data.get('cash_flow', []),
+    }
+
+    if not financials['income_statement']:
+        real_data = _fetch_yfinance_financials(symbol)
+        if real_data:
+            financials = real_data
+
     analysis_context = {
         'symbol': symbol,
-        'financials': {
-            'income_statement': financial_data.get('income_statement', []),
-            'balance_sheet': financial_data.get('balance_sheet', []),
-            'cash_flow': financial_data.get('cash_flow', [])
-        },
+        'financials': financials,
         'fiscal_period': inputs.get('fiscal_period', 'FY2024'),
         'wacc': financial_data.get('wacc', 0.10),
         'market_cap': financial_data.get('market_cap', 0),
-        'guidance': analyst_data.get('guidance', {})
+        'guidance': analyst_data.get('guidance', {}),
     }
 
     return await self.analyze(analysis_context)

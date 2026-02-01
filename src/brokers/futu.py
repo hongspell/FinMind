@@ -15,7 +15,7 @@ FinMind - 富途证券适配器
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 import logging
 
@@ -24,6 +24,8 @@ from .base import (
     BrokerConfig,
     Position,
     AccountBalance,
+    Trade,
+    TradeAction,
     BrokerError,
     AuthenticationError,
     ConnectionError,
@@ -31,6 +33,7 @@ from .base import (
     Currency,
     PositionSide,
 )
+from .trade_store import TradeStore
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,7 @@ class FutuAdapter(BrokerAdapter):
         self._quote_ctx = None
         self._trade_ctx = None
         self._trd_env = None
+        self._trade_store = TradeStore("futu_trades", dedup_keys="deal_id")
 
     @property
     def broker_name(self) -> str:
@@ -104,6 +108,7 @@ class FutuAdapter(BrokerAdapter):
             ret, data = self._trade_ctx.get_acc_list()
             if ret == RET_OK and len(data) > 0:
                 self._account_id = str(data.iloc[0]['acc_id'])
+                self._trade_store.set_account(self._account_id)
                 logger.info(f"Connected to Futu, account: {self._account_id}")
             else:
                 raise AuthenticationError(f"Failed to get account list: {data}")
@@ -248,6 +253,83 @@ class FutuAdapter(BrokerAdapter):
                 raise BrokerError(f"Failed to get positions: {e}")
             raise
 
+    async def get_trades(self, days: int = 365) -> List[Trade]:
+        """获取交易历史（当前会话 + 本地持久化记录）"""
+        if not self._connected or not self._trade_ctx:
+            raise BrokerError("Not connected to Futu")
+
+        try:
+            from futu import RET_OK
+
+            cutoff_time = datetime.now() - timedelta(days=days)
+
+            # Step 1: 从 API 获取当前交易并持久化
+            ret, data = self._trade_ctx.deal_list_query(
+                trd_env=self._trd_env,
+                acc_id=int(self._account_id) if self._account_id else 0,
+            )
+
+            if ret == RET_OK and len(data) > 0:
+                trade_dicts = []
+                for _, row in data.iterrows():
+                    trade_dicts.append({
+                        "deal_id": str(row.get("deal_id", "")),
+                        "code": str(row.get("code", "")),
+                        "trd_side": str(row.get("trd_side", "")),
+                        "qty": float(row.get("qty", 0)),
+                        "price": float(row.get("price", 0)),
+                        "order_id": str(row.get("order_id", "")),
+                        "create_time": str(row.get("create_time", "")),
+                    })
+                self._trade_store.persist(trade_dicts)
+
+            # Step 2: 从本地持久化存储读取所有交易记录
+            persisted = self._trade_store.load()
+
+            trades = []
+            for t in persisted:
+                code = t.get("code", "")
+                symbol, market = self._parse_futu_code(code)
+
+                market_currency_map = {Market.US: Currency.USD, Market.CN: Currency.CNY}
+                currency = market_currency_map.get(market, Currency.HKD)
+
+                trd_side = str(t.get("trd_side", "")).upper()
+                action = TradeAction.BUY if "BUY" in trd_side else TradeAction.SELL
+
+                trade_time = None
+                create_time = t.get("create_time")
+                if create_time:
+                    try:
+                        trade_time = datetime.strptime(str(create_time), "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        pass
+
+                # 日期过滤
+                if trade_time and trade_time < cutoff_time:
+                    continue
+
+                trades.append(Trade(
+                    symbol=symbol,
+                    market=market,
+                    action=action,
+                    quantity=float(t.get("qty", 0)),
+                    price=float(t.get("price", 0)),
+                    commission=0.0,
+                    currency=currency,
+                    trade_time=trade_time,
+                    order_id=str(t.get("order_id", "")),
+                    execution_id=str(t.get("deal_id", "")),
+                ))
+
+            trades.sort(key=lambda t: t.trade_time or datetime.min, reverse=True)
+            return trades
+
+        except BrokerError:
+            raise
+        except Exception as e:
+            raise BrokerError(f"Failed to get trades: {e}")
+
     def _parse_futu_code(self, code: str) -> tuple:
         """
         解析富途股票代码
@@ -288,6 +370,7 @@ class FutuMockAdapter(BrokerAdapter):
         super().__init__(config)
         self._mock_positions = []
         self._mock_balance = None
+        self._mock_trades: List[Trade] = []
 
     @property
     def broker_name(self) -> str:
@@ -368,6 +451,58 @@ class FutuMockAdapter(BrokerAdapter):
             ),
         ]
 
+        self._mock_trades = [
+            Trade(
+                symbol="00700",
+                market=Market.HK,
+                action=TradeAction.BUY,
+                quantity=500,
+                price=320.00,
+                commission=50.0,
+                currency=Currency.HKD,
+                trade_time=datetime.now() - timedelta(days=200),
+                order_id="FT-MOCK-001",
+                execution_id="FT-EXEC-001",
+            ),
+            Trade(
+                symbol="09988",
+                market=Market.HK,
+                action=TradeAction.BUY,
+                quantity=300,
+                price=75.00,
+                commission=30.0,
+                currency=Currency.HKD,
+                trade_time=datetime.now() - timedelta(days=130),
+                order_id="FT-MOCK-002",
+                execution_id="FT-EXEC-002",
+            ),
+            Trade(
+                symbol="AAPL",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=100,
+                price=165.00,
+                commission=2.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=75),
+                order_id="FT-MOCK-003",
+                execution_id="FT-EXEC-003",
+            ),
+            Trade(
+                symbol="00700",
+                market=Market.HK,
+                action=TradeAction.SELL,
+                quantity=100,
+                price=370.00,
+                commission=50.0,
+                currency=Currency.HKD,
+                trade_time=datetime.now() - timedelta(days=15),
+                order_id="FT-MOCK-004",
+                execution_id="FT-EXEC-004",
+                realized_pnl=5000.0,
+            ),
+        ]
+
     async def get_account_balance(self) -> AccountBalance:
         """获取模拟账户余额"""
         if not self._connected:
@@ -379,3 +514,10 @@ class FutuMockAdapter(BrokerAdapter):
         if not self._connected:
             raise BrokerError("Not connected")
         return self._mock_positions
+
+    async def get_trades(self, days: int = 365) -> List[Trade]:
+        """获取模拟交易历史"""
+        if not self._connected:
+            raise BrokerError("Not connected")
+        cutoff = datetime.now() - timedelta(days=days)
+        return [t for t in self._mock_trades if t.trade_time and t.trade_time >= cutoff]

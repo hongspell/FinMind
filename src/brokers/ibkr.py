@@ -19,10 +19,11 @@ FinMind - IBKR (盈透证券) 适配器
 """
 
 import asyncio
-from datetime import datetime
+import json
+import os
+from datetime import datetime, timedelta
 from typing import Optional, List
 import logging
-import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from .base import (
@@ -40,21 +41,15 @@ from .base import (
     Currency,
     PositionSide,
 )
+from .trade_store import TradeStore
 
 logger = logging.getLogger(__name__)
 
 # 线程池用于运行 ib_insync 操作
-_executor = ThreadPoolExecutor(max_workers=2)
+# 必须使用 max_workers=1 确保所有 IB 操作在同一线程中运行
+# 因为 ib_insync 的事件循环绑定到创建它的线程
+_executor = ThreadPoolExecutor(max_workers=1)
 
-
-def _run_in_new_loop(coro):
-    """在新的事件循环中运行协程（用于解决 Python 3.14 兼容性问题）"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 class IBKRAdapter(BrokerAdapter):
@@ -84,16 +79,72 @@ class IBKRAdapter(BrokerAdapter):
         self._ib = None
         self._account_values = {}
         self._loop = None
+        self._trade_store = TradeStore("ibkr_trades", dedup_keys="exec_id")
 
     @property
     def broker_name(self) -> str:
         return "IBKR"
 
+    def _ensure_event_loop(self):
+        """确保当前线程有事件循环（Python 3.14 兼容）
+
+        Python 3.14 移除了 asyncio.get_event_loop() 在非主线程中自动创建
+        事件循环的行为。ib_insync 内部依赖此行为，所以必须在每次调用
+        ib_insync 方法前确保事件循环已设置。
+        """
+        if self._loop and not self._loop.is_closed():
+            asyncio.set_event_loop(self._loop)
+        else:
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+
+    # -------------------------------------------------------------------------
+    # 交易记录本地持久化
+    #
+    # IB Gateway 的 reqExecutions / fills() 只返回当前 Gateway 会话的数据，
+    # Gateway 重启后执行缓存就清空了。为了保留历史交易记录，我们在每次
+    # 读取 fills 时将其持久化到本地 JSON 文件。
+    # -------------------------------------------------------------------------
+
+    def _persist_fills(self, fills) -> int:
+        """将 ib_insync Fill 对象转为字典，委托 TradeStore 持久化"""
+        trade_dicts = []
+        for fill in fills:
+            exec_id = fill.execution.execId
+            if not exec_id:
+                continue
+
+            trade_time = None
+            if fill.execution.time:
+                trade_time = str(fill.execution.time)
+
+            trade_dicts.append({
+                'exec_id': exec_id,
+                'symbol': fill.contract.symbol,
+                'sec_type': fill.contract.secType,
+                'exchange': fill.contract.exchange,
+                'currency': fill.contract.currency,
+                'side': fill.execution.side,
+                'shares': fill.execution.shares,
+                'price': fill.execution.price,
+                'order_id': fill.execution.orderId,
+                'time': trade_time,
+                'commission': (
+                    fill.commissionReport.commission
+                    if fill.commissionReport else 0.0
+                ),
+                'realized_pnl': (
+                    fill.commissionReport.realizedPNL
+                    if fill.commissionReport else None
+                ),
+            })
+
+        return self._trade_store.persist(trade_dicts)
+
     def _connect_sync(self) -> bool:
         """同步连接方法（在单独的事件循环中运行）"""
         # 必须先创建事件循环，再导入和实例化 IB
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        self._ensure_event_loop()
 
         try:
             from ib_insync import IB
@@ -124,6 +175,7 @@ class IBKRAdapter(BrokerAdapter):
                 accounts = self._ib.managedAccounts()
                 if accounts:
                     self._account_id = accounts[0]
+                    self._trade_store.set_account(self._account_id)
                     logger.info(f"Connected to IBKR, account: {self._account_id}, clientId: {client_id}")
                     self._connected = True
                     return True
@@ -226,8 +278,12 @@ class IBKRAdapter(BrokerAdapter):
         if not self._connected or not self._ib:
             raise BrokerError("Not connected to IBKR")
 
-        # 请求账户摘要
-        account_values = self._ib.accountSummary(self._account_id)
+        self._ensure_event_loop()
+
+        # 使用 accountValues() 获取缓存的账户数据（不会创建新订阅）
+        # 注意：不要使用 accountSummary()，它在 Python 3.14 中会因
+        # 事件循环问题导致订阅泄漏（"Maximum number of account summary requests exceeded"）
+        account_values = self._ib.accountValues(self._account_id)
 
         # 解析账户值
         values = {}
@@ -266,6 +322,8 @@ class IBKRAdapter(BrokerAdapter):
         if not self._connected or not self._ib:
             raise BrokerError("Not connected to IBKR")
 
+        self._ensure_event_loop()
+
         positions = []
 
         # 使用 portfolio() 获取持仓 - 它包含实时市值和盈亏
@@ -283,7 +341,7 @@ class IBKRAdapter(BrokerAdapter):
                     continue
 
                 # 确定市场
-                market = self._get_market(contract.exchange, contract.currency)
+                market = self._resolve_market(contract.exchange, contract.currency)
 
                 # 确定货币
                 currency = self._parse_currency(contract.currency)
@@ -333,7 +391,7 @@ class IBKRAdapter(BrokerAdapter):
                     continue
 
                 symbol = contract.symbol
-                market = self._get_market(contract.exchange, contract.currency)
+                market = self._resolve_market(contract.exchange, contract.currency)
                 currency = self._parse_currency(contract.currency)
 
                 quantity = pos.position
@@ -361,96 +419,82 @@ class IBKRAdapter(BrokerAdapter):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_executor, self._get_positions_sync)
 
-    def _get_market(self, exchange: str, currency: str) -> Market:
-        """根据交易所和货币确定市场"""
-        exchange_upper = exchange.upper() if exchange else ""
-
-        # 美股交易所
-        us_exchanges = {"NASDAQ", "NYSE", "ARCA", "AMEX", "BATS", "IEX", "SMART"}
-        if exchange_upper in us_exchanges or currency == "USD":
-            return Market.US
-
-        # 港股交易所
-        hk_exchanges = {"SEHK", "HKEX"}
-        if exchange_upper in hk_exchanges or currency == "HKD":
-            return Market.HK
-
-        # A股交易所
-        cn_exchanges = {"SSE", "SZSE", "SHSE"}
-        if exchange_upper in cn_exchanges or currency == "CNY":
-            return Market.CN
-
-        # 默认美股
-        return Market.US
-
     def _get_trades_sync(self, days: int = 7) -> List[Trade]:
-        """同步获取交易历史"""
+        """获取交易历史（当前会话 fills + 本地持久化记录）
+
+        IB Gateway 的 fills/reqExecutions 只保留当前会话的数据，
+        Gateway 重启后就丢失了。所以我们：
+        1. 获取当前会话的 fills 并持久化到本地
+        2. 从本地文件读取所有历史交易记录
+        3. 合并后返回
+        """
         if not self._connected or not self._ib:
             raise BrokerError("Not connected to IBKR")
 
-        trades = []
+        self._ensure_event_loop()
 
+        # Step 1: 捕获当前会话的 fills 并持久化
         try:
-            # 使用 fills() 获取成交记录 - 返回 Fill 对象列表
-            fills = self._ib.fills()
-            logger.info(f"Found {len(fills)} fills")
-
-            for fill in fills:
-                contract = fill.contract
-                execution = fill.execution
-
-                # 只处理股票和ETF
-                if contract.secType not in ('STK', 'ETF'):
-                    continue
-
-                # 确定市场和货币
-                market = self._get_market(contract.exchange, contract.currency)
-                currency = self._parse_currency(contract.currency)
-
-                # 确定交易方向
-                action = TradeAction.BUY if execution.side == 'BOT' else TradeAction.SELL
-
-                # 获取佣金和实现盈亏
-                commission = 0.0
-                realized_pnl = None
-                if fill.commissionReport:
-                    commission = fill.commissionReport.commission or 0.0
-                    realized_pnl = fill.commissionReport.realizedPNL
-
-                # 解析交易时间
-                trade_time = None
-                if execution.time:
-                    try:
-                        if isinstance(execution.time, datetime):
-                            trade_time = execution.time
-                        else:
-                            trade_time = datetime.fromisoformat(str(execution.time))
-                    except:
-                        pass
-
-                trades.append(Trade(
-                    symbol=contract.symbol,
-                    market=market,
-                    action=action,
-                    quantity=execution.shares,
-                    price=execution.price,
-                    commission=commission,
-                    currency=currency,
-                    trade_time=trade_time,
-                    order_id=str(execution.orderId) if execution.orderId else None,
-                    execution_id=execution.execId,
-                    realized_pnl=realized_pnl,
-                ))
-
-            # 按时间降序排列
-            trades.sort(key=lambda t: t.trade_time or datetime.min, reverse=True)
-            logger.info(f"Processed {len(trades)} stock/ETF trades")
-
+            self._ib.sleep(0)  # 处理待处理消息
+            session_fills = self._ib.fills()
+            if session_fills:
+                new_count = self._persist_fills(session_fills)
+                logger.info(
+                    f"Session has {len(session_fills)} fills, "
+                    f"{new_count} newly persisted"
+                )
         except Exception as e:
-            logger.error(f"Error fetching trades: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.warning(f"Error capturing session fills: {e}")
 
+        # Step 2: 从本地持久化存储读取所有交易记录
+        cutoff_time = datetime.now() - timedelta(days=days)
+        persisted = self._trade_store.load()
+
+        trades = []
+        for t in persisted:
+            if t.get('sec_type') not in ('STK', 'ETF'):
+                continue
+
+            trade_time = None
+            if t.get('time'):
+                try:
+                    trade_time = datetime.fromisoformat(str(t['time']))
+                except Exception:
+                    pass
+
+            if trade_time and trade_time < cutoff_time:
+                continue
+
+            market = self._resolve_market(
+                t.get('exchange', ''), t.get('currency', '')
+            )
+            currency = self._parse_currency(t.get('currency', ''))
+            action = (
+                TradeAction.BUY if t.get('side') == 'BOT'
+                else TradeAction.SELL
+            )
+
+            trades.append(Trade(
+                symbol=t['symbol'],
+                market=market,
+                action=action,
+                quantity=t.get('shares', 0),
+                price=t.get('price', 0),
+                commission=t.get('commission', 0),
+                currency=currency,
+                trade_time=trade_time,
+                order_id=(
+                    str(t['order_id']) if t.get('order_id') else None
+                ),
+                execution_id=t.get('exec_id'),
+                realized_pnl=t.get('realized_pnl'),
+            ))
+
+        trades.sort(key=lambda t: t.trade_time or datetime.min, reverse=True)
+        logger.info(
+            f"Returning {len(trades)} trades "
+            f"(from {len(persisted)} persisted records)"
+        )
         return trades
 
     async def get_trades(self, days: int = 7) -> List[Trade]:
@@ -474,6 +518,7 @@ class IBKRMockAdapter(BrokerAdapter):
         super().__init__(config)
         self._mock_positions = []
         self._mock_balance = None
+        self._mock_trades = []
 
     @property
     def broker_name(self) -> str:
@@ -584,6 +629,106 @@ class IBKRMockAdapter(BrokerAdapter):
             ),
         ]
 
+        self._mock_trades = [
+            Trade(
+                symbol="AAPL",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=50,
+                price=162.30,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=120),
+                order_id="MOCK-1001",
+                execution_id="EXEC-1001",
+            ),
+            Trade(
+                symbol="AAPL",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=50,
+                price=168.50,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=60),
+                order_id="MOCK-1002",
+                execution_id="EXEC-1002",
+            ),
+            Trade(
+                symbol="MSFT",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=50,
+                price=380.00,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=90),
+                order_id="MOCK-1003",
+                execution_id="EXEC-1003",
+            ),
+            Trade(
+                symbol="GOOGL",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=30,
+                price=140.00,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=180),
+                order_id="MOCK-1004",
+                execution_id="EXEC-1004",
+            ),
+            Trade(
+                symbol="TSLA",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=25,
+                price=200.00,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=150),
+                order_id="MOCK-1005",
+                execution_id="EXEC-1005",
+            ),
+            Trade(
+                symbol="NVDA",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=40,
+                price=450.00,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=200),
+                order_id="MOCK-1006",
+                execution_id="EXEC-1006",
+            ),
+            Trade(
+                symbol="AMZN",
+                market=Market.US,
+                action=TradeAction.BUY,
+                quantity=20,
+                price=178.50,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=45),
+                order_id="MOCK-1007",
+                execution_id="EXEC-1007",
+            ),
+            Trade(
+                symbol="AMZN",
+                market=Market.US,
+                action=TradeAction.SELL,
+                quantity=20,
+                price=195.20,
+                commission=1.0,
+                currency=Currency.USD,
+                trade_time=datetime.now() - timedelta(days=10),
+                order_id="MOCK-1008",
+                execution_id="EXEC-1008",
+                realized_pnl=334.0,
+            ),
+        ]
+
     async def get_account_balance(self) -> AccountBalance:
         """获取模拟账户余额"""
         if not self._connected:
@@ -595,3 +740,10 @@ class IBKRMockAdapter(BrokerAdapter):
         if not self._connected:
             raise BrokerError("Not connected")
         return self._mock_positions
+
+    async def get_trades(self, days: int = 365) -> List[Trade]:
+        """获取模拟交易历史"""
+        if not self._connected:
+            raise BrokerError("Not connected")
+        cutoff = datetime.now() - timedelta(days=days)
+        return [t for t in self._mock_trades if t.trade_time and t.trade_time >= cutoff]

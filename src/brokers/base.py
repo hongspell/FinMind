@@ -81,6 +81,11 @@ class BrokerConfig:
     tiger_id: Optional[str] = None
     tiger_account: Optional[str] = None
     tiger_private_key_path: Optional[str] = None
+    # IBKR Client Portal
+    ibkr_cp_base_url: str = "https://localhost:5000/v1/api"
+    # IBKR Flex Queries
+    ibkr_flex_token: Optional[str] = None
+    ibkr_flex_query_id: Optional[str] = None
     # 通用配置
     timeout: int = 30
     retry_count: int = 3
@@ -312,10 +317,52 @@ class BrokerAdapter(ABC):
         self._connected = False
         self._account_id: Optional[str] = None
 
+    _MARKET_MAP: Dict[str, 'Market'] = {
+        # 美股交易所 / 市场标识
+        "US": Market.US, "NASDAQ": Market.US, "NYSE": Market.US,
+        "ARCA": Market.US, "AMEX": Market.US, "BATS": Market.US,
+        "IEX": Market.US, "SMART": Market.US,
+        # 港股
+        "HK": Market.HK, "SEHK": Market.HK, "HKEX": Market.HK,
+        # A股
+        "CN": Market.CN, "SH": Market.CN, "SZ": Market.CN,
+        "SSE": Market.CN, "SZSE": Market.CN, "SHSE": Market.CN,
+        # 新加坡
+        "SG": Market.SG,
+    }
+
+    _CURRENCY_TO_MARKET: Dict[str, 'Market'] = {
+        "USD": Market.US,
+        "HKD": Market.HK,
+        "CNY": Market.CN,
+        "CNH": Market.CN,
+    }
+
     @staticmethod
     def _parse_currency(currency_str: str, default: 'Currency' = Currency.USD) -> 'Currency':
         """解析货币字符串为 Currency 枚举"""
         return BrokerAdapter._CURRENCY_MAP.get(currency_str.upper(), default) if currency_str else default
+
+    @staticmethod
+    def _resolve_market(identifier: str = "", currency: str = "") -> 'Market':
+        """根据交易所名 / 市场标识 / 货币统一解析市场
+
+        统一处理 IBKR 的交易所名（NASDAQ, SEHK）、
+        Tiger 的市场标识（US, HK）、以及货币回退。
+
+        Args:
+            identifier: 交易所名或市场标识（如 "NASDAQ"、"HK"）
+            currency: 货币代码（如 "USD"），作为回退依据
+        """
+        if identifier:
+            market = BrokerAdapter._MARKET_MAP.get(identifier.upper())
+            if market:
+                return market
+        if currency:
+            market = BrokerAdapter._CURRENCY_TO_MARKET.get(currency.upper())
+            if market:
+                return market
+        return Market.US
 
     @property
     def broker_name(self) -> str:

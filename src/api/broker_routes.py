@@ -8,7 +8,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
 from ..brokers import (
@@ -21,7 +21,7 @@ from ..brokers.portfolio import UnifiedPortfolio, create_broker_adapter
 logger = logging.getLogger(__name__)
 
 _SYMBOL_PATTERN = re.compile(r'^[A-Za-z0-9.\-]{1,20}$')
-_VALID_BROKER_TYPES = frozenset({"ibkr", "futu", "tiger"})
+_VALID_BROKER_TYPES = frozenset({"ibkr", "ibkr_cp", "futu", "tiger"})
 
 
 def validate_symbol(symbol: str) -> str:
@@ -81,11 +81,13 @@ router = APIRouter(prefix="/api/v1/broker", tags=["Broker"])
 
 class BrokerConfigRequest(BaseModel):
     """券商配置请求"""
-    broker_type: str = Field(..., description="券商类型: ibkr, futu, tiger")
-    # IBKR
+    broker_type: str = Field(..., description="券商类型: ibkr, ibkr_cp, futu, tiger")
+    # IBKR TWS
     ibkr_host: str = Field(default="127.0.0.1")
     ibkr_port: int = Field(default=4001)
     ibkr_client_id: int = Field(default=1)
+    # IBKR Client Portal
+    ibkr_cp_base_url: str = Field(default="https://localhost:5000/v1/api")
     # Futu
     futu_host: str = Field(default="127.0.0.1")
     futu_port: int = Field(default=11111)
@@ -96,17 +98,23 @@ class BrokerConfigRequest(BaseModel):
     tiger_private_key: Optional[str] = None  # 私钥内容（非路径）
 
     def to_config(self) -> BrokerConfig:
-        """转换为 BrokerConfig"""
+        """转换为 BrokerConfig
+
+        tiger_private_key 是字符串内容，TigerAdapter._read_private_key()
+        已支持直接接受字符串内容（检测 -----BEGIN 头标识）。
+        """
         return BrokerConfig(
             broker_type=self.broker_type,
             ibkr_host=self.ibkr_host,
             ibkr_port=self.ibkr_port,
             ibkr_client_id=self.ibkr_client_id,
+            ibkr_cp_base_url=self.ibkr_cp_base_url,
             futu_host=self.futu_host,
             futu_port=self.futu_port,
             futu_trade_password=self.futu_trade_password,
             tiger_id=self.tiger_id,
             tiger_account=self.tiger_account,
+            tiger_private_key_path=self.tiger_private_key,
         )
 
 
@@ -218,10 +226,20 @@ async def get_supported_brokers():
         "brokers": [
             {
                 "type": "ibkr",
-                "name": "盈透证券 (Interactive Brokers)",
+                "name": "盈透证券 (Interactive Brokers) - TWS API",
                 "description": "使用 TWS API 连接到 IB Gateway 或 TWS",
                 "required_fields": ["ibkr_host", "ibkr_port", "ibkr_client_id"],
                 "setup_guide": "需要运行 IB Gateway 并启用 API",
+            },
+            {
+                "type": "ibkr_cp",
+                "name": "盈透证券 (Interactive Brokers) - Client Portal",
+                "description": "使用 Client Portal REST API 连接到 IBKR Gateway",
+                "required_fields": ["ibkr_cp_base_url"],
+                "setup_guide": (
+                    "需要运行 Client Portal Gateway 并在浏览器完成登录。"
+                    "下载地址: https://www.interactivebrokers.com/en/trading/ib-api.php"
+                ),
             },
             {
                 "type": "futu",
@@ -366,13 +384,13 @@ async def get_positions(
 @router.get("/trades/{broker_type}", response_model=List[TradeResponse], summary="获取交易历史")
 async def get_trades(
     broker_type: str,
-    days: int = 7,
+    days: int = Query(default=365, ge=1, le=3650),
     portfolio: UnifiedPortfolio = Depends(get_portfolio),
 ):
     """
     获取指定券商的交易历史
 
-    - days: 获取最近多少天的交易记录，默认7天
+    - days: 获取最近多少天的交易记录，默认365天，上限3650天（10年）
     """
     adapter = get_connected_adapter(portfolio, broker_type)
 
